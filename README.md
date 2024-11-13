@@ -39,8 +39,13 @@ Different models can be chosen from this list: [Ollama Library](https://ollama.c
 - `yarn dev` - Run the client and server in dev mode (hot reloading, transpile/interpret on save, etc)
 - `yarn build` - Transpile the TypeScript files, and other files into a distributable package in `client/dist/*` and `server/dist/*`
 - `yarn start` - Builds the environments and runs the built files - not ideal for dev.
-  
 
-References:
-[Ollama docker image](https://hub.docker.com/r/ollama/ollama)
-[Yarn Workspaces](https://yarnpkg.com/features/workspaces)
+## Known issues
+- Steaming mode isn't working.  JSON parsing problem on the server parsing side.
+- Unnecessary component refresh when typing a query
+- Not profitable
+
+## References:
+- [Ollama docker image](https://hub.docker.com/r/ollama/ollama)
+- [Ollama Library (of LLMs)](https://ollama.com/library)
+- [Yarn Workspaces](https://yarnpkg.com/features/workspaces)
