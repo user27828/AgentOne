@@ -4,10 +4,12 @@ This app provides a frontend for Ollama installations that provide an API interf
 The structure makes use of Yarn workspaces, keep this in mind when modifying this for your own purposes.
 
 Requirements:
-* Ollama installation accessible via HTTP(S).
-* This repo, configured.
+
+- Ollama installation accessible via HTTP(S).
+- This repo, configured.
 
 # Installation
+
 ## Install Ollama docker image:
 
 - `docker pull ollama/ollama`
@@ -20,6 +22,7 @@ Requirements:
 Different models can be chosen from this list: [Ollama Library](https://ollama.com/library)
 
 ## Prepare the front/backend
+
 - Install required tools
   - Node 18+, which includes corepack
   - Make sure corepack is enabled after making sure you're running Node 18+ (for yarn) - `corepack enable`<br />
@@ -41,11 +44,14 @@ Different models can be chosen from this list: [Ollama Library](https://ollama.c
 - `yarn start` - Builds the environments and runs the built files - not ideal for dev.
 
 ## Known issues
-- Steaming mode isn't working.  JSON parsing problem on the server parsing side.
-- Unnecessary component refresh when typing a query
+
+- Not using Ollama JS package yet - wanted to get it working with `fetch()` first.
+- Steaming mode isn't working. JSON parsing problem on the server parsing side.
+- Scroll to latest response not working.
 - Not profitable
 
 ## References:
+
 - [Ollama docker image](https://hub.docker.com/r/ollama/ollama)
 - [Ollama Library (of LLMs)](https://ollama.com/library)
 - [Yarn Workspaces](https://yarnpkg.com/features/workspaces)

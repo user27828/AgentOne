@@ -13,7 +13,7 @@ import {
 } from "@mui/material";
 import { Brightness2, Brightness5 } from "@mui/icons-material";
 import "./index.css";
-import Root from "./pages/Root.tsx";
+import Root from "./pages/root.tsx";
 import Gpt from "./pages/gpt.tsx";
 
 const router = createBrowserRouter(
@@ -89,7 +89,7 @@ const App = () => {
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <IconButton
-        sx={{ position: "absolute", top: 3, left: 10 }}
+        sx={{ position: "absolute", top: 3, left: 10, zIndex: 10000 }}
         onClick={toggleTheme}
         color="inherit"
       >

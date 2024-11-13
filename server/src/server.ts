@@ -53,10 +53,11 @@ app.get("/list-models", async (req, res) => {
  * @param {string} body.model - Selected model on the backend
  * @param {number} body.temperature - LLM temperature (default .7)
  * @param {boolean} body.stream - Stream response?
+ * @param {string} body.system - System message (overrides Modelfile, if exists)
  */
 app.post("/chat", async (req, res) => {
-  const { query, model, temperature, stream } = req.body;
-  console.log({ apiUrl: process.env.OLLAMA_API_URL });
+  const { query, model, temperature, stream, system = null } = req.body;
+  console.debug({ userQuery: query });
   try {
     const response = await fetch(`${process.env.OLLAMA_API_URL}/api/chat`, {
       method: "POST",
@@ -68,6 +69,7 @@ app.post("/chat", async (req, res) => {
         messages: [{ role: "user", content: query }],
         temperature: temperature || 0.7, // Default temperature
         stream: stream || false, // Default to non-streaming
+        system,
       }),
     });
 
