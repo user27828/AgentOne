@@ -5,6 +5,7 @@ import express from "express";
 import path from "path";
 import dotenv from "dotenv";
 import cors from "cors";
+import { has } from "lodash";
 
 dotenv.config({ path: path.resolve(__dirname, "../../.env") });
 
@@ -57,7 +58,7 @@ app.get("/list-models", async (req, res) => {
  */
 app.post("/chat", async (req, res) => {
   const { query, model, temperature, stream, system = null } = req.body;
-  console.debug({ userQuery: query });
+  console.debug({ userQuery: query, model, temperature, stream, system });
   try {
     const response = await fetch(`${process.env.OLLAMA_API_URL}/api/chat`, {
       method: "POST",
@@ -65,7 +66,7 @@ app.post("/chat", async (req, res) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "llama3.2", // or the specific model you want to use
+        model,
         messages: [{ role: "user", content: query }],
         temperature: temperature || 0.7, // Default temperature
         stream: stream || false, // Default to non-streaming
@@ -77,8 +78,26 @@ app.post("/chat", async (req, res) => {
       throw new Error("API response failed");
     }
 
-    const result = await response.json();
-    res.json(result);
+    if (stream) {
+      const reader = response.body?.getReader();
+      if (reader) {
+        const decoder = new TextDecoder();
+        res.writeHead(200, { "Content-Type": "text/plain" });
+        const streamResponse = async () => {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            const chunk = decoder.decode(value, { stream: true });
+            res.write(chunk);
+          }
+          res.end();
+        };
+        streamResponse();
+      }
+    } else {
+      const result = await response.json();
+      res.json(result);
+    }
   } catch (error) {
     console.error("Error communicating with Ollama: ", error);
     res.status(500).json({ error: "Failed to get response from Ollama" });

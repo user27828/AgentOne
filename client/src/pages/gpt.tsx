@@ -2,7 +2,7 @@
  * GPT chat page
  */
 import React, { useState, useCallback, useEffect, useRef } from "react";
-import { get, isNumber, isString, last, map, trim } from "lodash";
+import { get, isNumber, isString, last, map, size, trim } from "lodash";
 import {
   Button,
   Box,
@@ -78,8 +78,9 @@ const loadHistory = () => {
  * Save updated history to localStorage
  * @param {object} history - History object to store
  */
-const saveHistory = (history: any) =>
+const saveHistory = (history: any) => {
   localStorage.setItem("queryHistory", JSON.stringify(history));
+};
 
 /**
  * Fetch a list of available models from the LLM server
@@ -95,49 +96,6 @@ const apiListModels = async () => {
     return models;
   }
   return [];
-};
-
-/**
- * Send a query to the LLM server for evaluation
- * @param {string} query - User query
- * @param {string} model - Selected LLM model
- * @param {number} temperature - LLM temperature
- * @param {boolean} stream - Stream response?
- * @param {object} controller - Fetch controller for aborting
- * @returns {JSON} - JSON object or stream of objects
- */
-const apiSendQuery = async (
-  query: string,
-  model: string,
-  temperature: number,
-  stream: boolean,
-  controller: AbortController,
-) => {
-  const response = await fetch(`${serverUrl}/chat`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ query: trim(query), model, temperature, stream }),
-    signal: controller.signal,
-  });
-  if (response.ok) {
-    if (stream) {
-      const reader = response.body?.getReader();
-      const decoder = new TextDecoder("utf-8");
-      let result = "";
-      if (reader) {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          result += decoder.decode(value, { stream: true });
-        }
-        return result;
-      }
-    } else {
-      const result = await response.json();
-      return JSON.stringify(result);
-    }
-  }
-  return false;
 };
 
 interface QueryBoxProps {
@@ -190,6 +148,7 @@ const QueryBox: React.FC<QueryBoxProps> = ({
     handleQuery(localQuery);
     handleSend(event);
     setLocalQuery("");
+    setShowSettings(false); // Close settings panel on send
   };
 
   /**
@@ -307,7 +266,9 @@ const QueryBox: React.FC<QueryBoxProps> = ({
                     sx={{ mb: 1 }}
                   >
                     <InputLabel>Temperature</InputLabel>
-                    <Tooltip title={temperature}>
+                    <Tooltip
+                      title={`Currently: ${temperature}.  Randomness of results/"truth" vs "creativity"`}
+                    >
                       <Slider
                         value={temperature}
                         onChange={handleTemperatureChange}
@@ -320,7 +281,12 @@ const QueryBox: React.FC<QueryBoxProps> = ({
                   </FormControl>
                   <FormControlLabel
                     control={
-                      <Switch checked={stream} onChange={handleStreamChange} />
+                      <Tooltip title="Display results as they arrive from the API">
+                        <Switch
+                          checked={stream}
+                          onChange={handleStreamChange}
+                        />
+                      </Tooltip>
                     }
                     label="Stream"
                     disabled={loading || sending}
@@ -349,7 +315,10 @@ const Gpt = () => {
   const [selectedModel, setSelectedModel] = useState<string>("");
   const [temperature, setTemperature] = useState<number>(0.7);
   const [stream, setStream] = useState<boolean>(false);
+  const [streamContent, setStreamContent] = useState<any>([]);
+  const [streamContentString, setStreamContentString] = useState<string>("");
   const [history, setHistory] = useState(loadHistory());
+  const [pendingHistory, setPendingHistory] = useState<boolean>(false);
   const [cookies, setCookie] = useCookies(["settings"]);
   const [showDebug, setShowDebug] = useState<boolean>(false);
   const controllerRef = useRef<AbortController | null>(null);
@@ -410,11 +379,72 @@ const Gpt = () => {
     [query, selectedModel],
   );
 
+  /**
+   * Send a query to the LLM server for evaluation
+   * @param {string} query - User query
+   * @param {string} model - Selected LLM model
+   * @param {number} temperature - LLM temperature
+   * @param {boolean} stream - Stream response?
+   * @param {object} controller - Fetch controller for aborting
+   * @returns {JSON} - JSON object or stream of objects
+   */
+  const apiSendQuery = async (
+    query: string,
+    model: string,
+    temperature: number,
+    stream: boolean,
+    controller: AbortController,
+  ) => {
+    const response = await fetch(`${serverUrl}/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: trim(query), model, temperature, stream }),
+      signal: controller.signal,
+    });
+    if (response.ok) {
+      setStreamContent([]);
+      setStreamContentString("");
+
+      if (stream) {
+        let _result = "";
+        const reader = response.body?.getReader();
+        const decoder = new TextDecoder("utf-8");
+        let data = {};
+        while (true) {
+          const { done, value } = (await reader?.read()) || {};
+          if (done) break;
+          _result += decoder.decode(value, { stream: true });
+          // Process each line of data
+          const lines: string[] = _result ? _result.split("\n") : [];
+          for (let i = 0; i < lines.length - 1; i++) {
+            const line = lines[i];
+            if (line.trim()) {
+              data = JSON.parse(line);
+              setStreamContent((prev: any) => [...prev, data]);
+              setStreamContentString(
+                (prev: string) => prev + get(data, "message.content"),
+              );
+            }
+          }
+          // Keep the last partial line in the buffer
+          _result = lines[lines.length - 1];
+        }
+        setResult({ ...data, content: _result });
+        return _result;
+      } else {
+        const _result = await response.json();
+        setResult(_result || {});
+        return JSON.stringify(_result);
+      }
+    }
+    return false;
+  };
+
   // Send the API request once there's a query and sending status.
   useEffect(() => {
     if (query && sending) {
       controllerRef.current = new AbortController();
-      console.log({ SendingQuery: query });
+      console.log({ SendingQuery: query, selectedModel, temperature, stream });
 
       apiSendQuery(
         query,
@@ -422,30 +452,50 @@ const Gpt = () => {
         temperature,
         stream,
         controllerRef.current,
-      ).then((res) => {
-        let _result = {};
-        if (stream) {
-          let chunks = isString(res) ? res.split("\n").filter(Boolean) : false;
-          let parsedChunks =
-            (chunks && chunks.map((chunk: string) => JSON.parse(chunk))) || [];
-          let content = parsedChunks
-            .map((chunk: any) => chunk.message.content)
-            .join(" ");
-          _result = { ...parsedChunks[parsedChunks.length - 1], content };
-          setResult(_result);
-        } else {
-          _result = (res && JSON.parse(res)) || {};
-          setResult(_result);
-        }
-        // Local history
-        const newHistoryItem = { query, result: _result };
-        const updatedHistory = [...history, newHistoryItem];
-        setHistory(updatedHistory);
-        saveHistory(updatedHistory);
+      ).then(() => {
         setSending(false);
+        setPendingHistory(true);
       });
     }
   }, [query, sending]);
+
+  /**
+   * Save to history
+   */
+  useEffect(() => {
+    if (
+      pendingHistory &&
+      sending === false &&
+      query &&
+      ((stream && size(streamContent) && size(streamContentString)) ||
+        (!stream && size(result)))
+    ) {
+      // Local history
+      let _result = {};
+      if (stream) {
+        const lastObject = last(streamContent) || {};
+        _result = {
+          ...lastObject,
+          content: streamContentString,
+          message: { role: get(lastObject, "message.role"), content: "" },
+        };
+      } else {
+        _result = result;
+      }
+      const newHistoryItem = { query, result: _result };
+      const updatedHistory = [...history, newHistoryItem];
+      setHistory(updatedHistory);
+      saveHistory(updatedHistory);
+      setPendingHistory(false);
+    }
+  }, [
+    stream,
+    sending,
+    result,
+    streamContent,
+    streamContentString,
+    pendingHistory,
+  ]);
 
   /**
    * Delete specific history item
@@ -523,21 +573,17 @@ const Gpt = () => {
    * @returns {JSX.Element}
    */
   const StreamingResultBox = () => {
-    const [content, setContent] = useState<string>("");
-    useEffect(() => {
-      if (stream && result.content) {
-        setContent(result.content);
-      } else if (!stream && result.message) {
-        setContent(result.message.content);
-      }
-    }, [result, stream]);
-
+    //console.log({ query, result, streamContent, streamContentString });
+    /**
+     * Display an <Item> pair for the chat "you" vs "me"
+     */
     interface ItemPairProps {
       index: number | string;
       me: string;
       gpt: string;
       realtime?: boolean | null;
       sending?: boolean | null;
+      source?: string | null;
     }
     const ItemPair: React.FC<ItemPairProps> = ({
       index,
@@ -545,13 +591,16 @@ const Gpt = () => {
       gpt,
       realtime = false,
       sending = false,
+      source = null,
     }) => {
       const lastHistoryItem = last(history) || [];
-      const lastHistoryQuery = get(lastHistoryItem, "query");
-      const lastHistoryResult = get(lastHistoryItem, "result.message.content");
+      // const lastHistoryQuery = get(lastHistoryItem, "query");
+      const lastHistoryResult =
+        get(lastHistoryItem, "result.content") ||
+        get(lastHistoryItem, "result.message.content");
 
       return (
-        <>
+        <React.Fragment key={`container-${index}`}>
           {!realtime && (
             <ListItem key={`me-${index}`} sx={sxChatMeItem}>
               <ListItemText
@@ -585,24 +634,26 @@ const Gpt = () => {
             </ListItem>
           )}
           {/* Don't display the last history item's response */}
-          {!(me !== lastHistoryQuery && realtime) &&
-            !(realtime && gpt === lastHistoryResult) && (
-              <ListItem key={`response-${index}`} sx={sxGptItem}>
-                <ListItemText
-                  primary={
-                    <ReactMarkdown
-                      className="results-box"
-                      remarkPlugins={[remarkGfm]}
-                    >
-                      {gpt}
-                    </ReactMarkdown>
-                  }
-                  secondary={"(LLM)"}
-                  sx={sxGptItemText}
-                ></ListItemText>
-              </ListItem>
-            )}
-        </>
+          {(!realtime && size(trim(gpt)) > 0) ||
+          (realtime && source !== "history" && gpt !== lastHistoryResult) ? (
+            <ListItem key={`response-${index}`} sx={sxGptItem}>
+              <ListItemText
+                primary={
+                  <ReactMarkdown
+                    className="results-box"
+                    remarkPlugins={[remarkGfm]}
+                  >
+                    {gpt}
+                  </ReactMarkdown>
+                }
+                secondary={"(LLM)"}
+                sx={sxGptItemText}
+              ></ListItemText>
+            </ListItem>
+          ) : (
+            <React.Fragment />
+          )}
+        </React.Fragment>
       );
     };
 
@@ -610,6 +661,7 @@ const Gpt = () => {
       <Card>
         <CardContent>
           <List dense={true}>
+            {/* History items */}
             {map(
               history,
               (chat, index) =>
@@ -618,22 +670,34 @@ const Gpt = () => {
                     {...{
                       index,
                       me: chat.query,
-                      gpt: get(chat, "result.message.content", ""),
+                      gpt: get(
+                        chat,
+                        "result.content",
+                        get(chat, "result.message.content"),
+                      ),
                       realtime: false,
+                      source: "history",
                     }}
                   />
                 ),
             )}
-            {query && content && (
+            {/* Realtime/current item */}
+            {query &&
+            (streamContentString ||
+              get(result, "content", get(result, "message.content"))) ? (
               <ItemPair
                 {...{
-                  index: "rt",
+                  index: "realtime",
                   me: query,
-                  gpt: content || "Ask me anything",
+                  gpt:
+                    streamContentString ||
+                    get(result, "content", get(result, "message.content")),
                   realtime: true,
                   sending,
                 }}
               />
+            ) : (
+              <React.Fragment />
             )}
           </List>
         </CardContent>
@@ -647,7 +711,7 @@ const Gpt = () => {
    * @returns {JSX.Element}
    */
   const DebuggingResultDialog = () => {
-    const debugResult = { ...result };
+    const debugResult = { result, streamContent };
 
     return (
       <Dialog open={showDebug} fullWidth={true} maxWidth="xl">

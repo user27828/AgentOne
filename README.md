@@ -45,8 +45,6 @@ Different models can be chosen from this list: [Ollama Library](https://ollama.c
 
 ## Known issues
 
-- Not using Ollama JS package yet - wanted to get it working with `fetch()` first.
-- Steaming mode isn't working. JSON parsing problem on the server parsing side.
 - Scroll to latest response not working.
 - Not profitable
 

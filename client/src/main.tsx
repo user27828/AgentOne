@@ -64,6 +64,21 @@ const App = () => {
         palette: {
           mode: darkMode ? "dark" : "light",
         },
+        typography: {
+          fontSize: 16,
+          fontFamily: [
+            '"Helvetica"',
+            "Arial",
+            "sans-serif",
+            '"Segoe UI Emoji"',
+            '"Segoe UI Symbol"',
+            '"Segoe UI"',
+            "Roboto",
+            "-apple-system",
+            "BlinkMacSystemFont",
+            '"Apple Color Emoji"',
+          ].join(","),
+        },
       }),
     [darkMode],
   );
