@@ -1,0 +1,35 @@
+{
+  "name": "agentone",
+  "private": true,
+  "workspaces": [
+    "client",
+    "server"
+  ],
+  "version": "0.0.1",
+  "type": "module",
+  "packageManager": "yarn@4.5.1+sha512.341db9396b6e289fecc30cd7ab3af65060e05ebff4b3b47547b278b9e67b08f485ecd8c79006b405446262142c7a38154445ef7f17c1d5d1de7d90bf9ce7054d",
+  "scripts": {
+    "dev": "concurrently -r --restart-tries 3 --handle-input \"yarn workspace @agentone/server dev\" \"yarn workspace @agentone/client dev\"",
+    "build": "yarn workspace @agentone/server build && yarn workspace @agentone/client build",
+    "start": "yarn build && concurrently -r --restart-tries 3 --handle-input \"yarn workspace @agentone/server start\" \"yarn workspace @agentone/client start\"",
+    "lint": "eslint .",
+    "preview": "yarn workspace @agentone/client preview"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.14.0",
+    "concurrently": "^9.1.0",
+    "eslint": "^9.14.0",
+    "eslint-plugin-react-hooks": "^5.0.0",
+    "eslint-plugin-react-refresh": "^0.4.14",
+    "globals": "^15.12.0",
+    "nodemon": "^3.1.7",
+    "prettier": "^3.3.3",
+    "typescript": "~5.6.3",
+    "typescript-eslint": "^8.14.0"
+  },
+  "dependencies": {
+    "@types/lodash": "^4.17.13",
+    "dotenv": "^16.4.5",
+    "lodash": "^4.17.21"
+  }
+}
