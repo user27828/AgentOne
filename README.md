@@ -1,7 +1,8 @@
 # AgentOne - Vite/React front/backend for Ollama
 
-This app provides a frontend for Ollama installations that provide an API interface.
-The structure makes use of Yarn workspaces, keep this in mind when modifying this for your own purposes.
+This app provides a frontend for Ollama installations that provide a REST API interface.
+
+Todo: Add more functionality offered by the Ollama API.
 
 Requirements:
 
@@ -45,7 +46,7 @@ Different models can be chosen from this list: [Ollama Library](https://ollama.c
 
 ## Known issues
 
-- Scroll to latest response not working.
+- Scroll to latest response is not working.
 - Not profitable
 
 ## References:
