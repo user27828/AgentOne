@@ -2,7 +2,8 @@
 
 This app provides a starter frontend for Ollama servers that provide a REST API interface.
 
-[![Sample video](https://img.youtube.com/vi/vVfMWTNXFLo/0.jpg)](https://www.youtube.com/watch?v=vVfMWTNXFLo)
+<small>(Click below for a preview)</small><br/>
+<a href="https://www.youtube.com/watch?v=vVfMWTNXFLo" target="_blank"><img src="https://img.youtube.com/vi/vVfMWTNXFLo/0.jpg" alt="[Sample video]" /></a>
 
 # Installation
 
