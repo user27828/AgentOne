@@ -2,14 +2,14 @@
 
 This app provides a starter frontend for Ollama servers that provide a REST API interface.
 
-Todo: Add more functionality offered by the Ollama API.
+[![Sample video](https://img.youtube.com/vi/vVfMWTNXFLo/0.jpg)](https://www.youtube.com/watch?v=vVfMWTNXFLo)
 
-Requirements:
+# Installation
+
+## Requirements:
 
 - Ollama installation accessible via HTTP(S).
 - This repo, configured.
-
-# Installation
 
 ## Install Ollama docker image:
 
@@ -48,6 +48,10 @@ Different models can be chosen from this list: [Ollama Library](https://ollama.c
 
 - Scroll to latest response is not working.
 - Not profitable
+
+## TODO
+
+- Add more functionality offered by the Ollama API.
 
 ## References:
 
