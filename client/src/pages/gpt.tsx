@@ -366,10 +366,11 @@ const Gpt = () => {
       }
     };
     fetchModels();
+
     // Load settings from cookies
     const savedSettings = cookies.settings || {};
     setTemperature(savedSettings.temperature || 0.7);
-    setStream(savedSettings.stream || false);
+    setStream(savedSettings.stream || stream);
   }, []);
 
   // Scroll to the bottom of the StreamingResultBox on updates
@@ -612,14 +613,21 @@ const Gpt = () => {
         get(lastHistoryItem, "result.content") ||
         get(lastHistoryItem, "result.message.content");
       const showMyMessage =
-        !realtime || !(realtime && source !== "history" && size(gpt));
+        // Show all history messages
+        !realtime ||
+        // Show realtime messages where the source isn't history,
+        // GPT said something, and my realtime query isn't the last history query
+        (realtime &&
+          source !== "history" &&
+          size(gpt) &&
+          me !== get(lastHistoryItem, "query"));
       const showReply =
         (!realtime && size(trim(gpt)) > 0) ||
         (realtime && source !== "history" && gpt !== lastHistoryResult);
 
       return (
         <React.Fragment key={`container-${index}`}>
-          {showMyMessage && (
+          {showMyMessage ? (
             <ListItem key={`me-${index}`} sx={sxChatMeItem}>
               <ListItemText
                 primaryTypographyProps={{ component: "div" }}
@@ -660,6 +668,8 @@ const Gpt = () => {
                 }
               />
             </ListItem>
+          ) : (
+            <React.Fragment />
           )}
           {/* Don't display the last history item's response if it duplicates the realtime response */}
           {showReply ? (
