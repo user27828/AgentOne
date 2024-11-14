@@ -8,10 +8,12 @@ import {
   Box,
   Card,
   CardContent,
+  Collapse,
   Dialog,
   DialogTitle,
   DialogContent,
   DialogActions,
+  Drawer,
   TextField,
   InputAdornment,
   List,
@@ -22,18 +24,21 @@ import {
   FormControl,
   Grid2 as Grid,
   InputLabel,
+  Stack,
   Switch,
   FormControlLabel,
   Slider,
   SelectChangeEvent,
   CircularProgress,
   Tooltip,
-  Collapse,
   IconButton,
 } from "@mui/material";
 import {
+  ChevronLeft,
+  ChevronRight,
   Send as SendIcon,
   Cancel as CancelIcon,
+  Info as InfoIcon,
   Settings as SettingsIcon,
   Delete as DeleteIcon,
   PestControl as DebugIcon,
@@ -41,6 +46,7 @@ import {
 import { useCookies } from "react-cookie";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import CodeFormat from "../components/CodeFormat";
 import "../App.css";
 
 const serverUrl = `${import.meta.env.VITE_API_HOST}:${import.meta.env.VITE_API_PORT}`;
@@ -49,17 +55,25 @@ const serverUrl = `${import.meta.env.VITE_API_HOST}:${import.meta.env.VITE_API_P
 const sxChatMeItem = {
   justifyContent: "flex-end",
   textAlign: "right",
+  paddingBottom: 0,
 };
 const sxChatMeItemText = {
   maxWidth: "94%",
-  background: "rgba(0,0,.1,.1)",
+  marginBottom: 0,
+  background: "rgba(0,0,.1,.3)",
   padding: "10px",
   borderRadius: "10px",
   opacity: 0.9,
 };
 
-const sxGptItem = { justifyContent: "flex-start", textAlign: "left" };
+const sxGptItem = {
+  paddingTop: 0,
+  justifyContent: "flex-start",
+  textAlign: "left",
+};
 const sxGptItemText = {
+  marginTop: 1,
+  border: "1px solid rgba(255,255,255,.05)",
   background: "rgba(0,.1,0,.1)",
   padding: "5px",
   borderRadius: "5px",
@@ -175,7 +189,9 @@ const QueryBox: React.FC<QueryBoxProps> = ({
                 value={localQuery}
                 onChange={handleLocalQuery}
                 onKeyDown={handleKeyPress}
-                placeholder="Enter a query"
+                placeholder={
+                  !sending ? "Enter a query" : "(Waiting for response...)"
+                }
                 fullWidth
                 disabled={loading || sending}
                 slotProps={{
@@ -314,17 +330,23 @@ const Gpt = () => {
   const [models, setModels] = useState<string[]>([]);
   const [selectedModel, setSelectedModel] = useState<string>("");
   const [temperature, setTemperature] = useState<number>(0.7);
-  const [stream, setStream] = useState<boolean>(false);
+  const [stream, setStream] = useState<boolean>(true);
   const [streamContent, setStreamContent] = useState<any>([]);
   const [streamContentString, setStreamContentString] = useState<string>("");
   const [history, setHistory] = useState(loadHistory());
+  const [showHistoryDebug, setShowHistoryDebug] = useState<boolean | any>(
+    false,
+  );
   const [pendingHistory, setPendingHistory] = useState<boolean>(false);
   const [cookies, setCookie] = useCookies(["settings"]);
+  const [sidebarOpen, setSidebarOpen] = React.useState(false);
   const [showDebug, setShowDebug] = useState<boolean>(false);
   const controllerRef = useRef<AbortController | null>(null);
   const streamingEndRef = useRef<null | HTMLDivElement>(null);
-  const streamingBoxRef = useRef<null | HTMLDivElement>(null);
 
+  /**
+   * Get the initial list of available LLMs from the Ollama service
+   */
   useEffect(() => {
     const fetchModels = async () => {
       const availableModels = await apiListModels();
@@ -350,21 +372,10 @@ const Gpt = () => {
     setStream(savedSettings.stream || false);
   }, []);
 
-  const scrollToBottom = () => {
-    if (streamingBoxRef.current && streamingBoxRef.current.scrollHeight) {
-      streamingBoxRef.current.scrollTop = streamingBoxRef.current.scrollHeight;
-    }
-    // if (streamingEndRef.current) {
-    //   streamingEndRef.current.scrollIntoView({
-    //     behavior: "smooth",
-    //     block: "end",
-    //   });
-    // }
-  };
-
+  // Scroll to the bottom of the StreamingResultBox on updates
   useEffect(() => {
-    scrollToBottom();
-  }, [stream, streamingBoxRef]);
+    streamingEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [sending, streamContent, result]);
 
   const handleQuery = (event: React.ChangeEvent<HTMLInputElement> | string) => {
     const value = isString(event) ? event : event.target.value;
@@ -437,6 +448,9 @@ const Gpt = () => {
         return JSON.stringify(_result);
       }
     }
+    setResult({
+      content: `[Invalid server response - ${response.status} ${response.statusText}]`,
+    });
     return false;
   };
 
@@ -535,7 +549,7 @@ const Gpt = () => {
   );
 
   const handleTemperatureChange = useCallback(
-    (event: Event, value: number | number[]) => {
+    (_event: Event, value: number | number[]) => {
       setTemperature(value as number);
       setCookie(
         "settings",
@@ -573,9 +587,8 @@ const Gpt = () => {
    * @returns {JSX.Element}
    */
   const StreamingResultBox = () => {
-    //console.log({ query, result, streamContent, streamContentString });
     /**
-     * Display an <Item> pair for the chat "you" vs "me"
+     * Display an <Item> pair for the chat "gpt" vs "me"
      */
     interface ItemPairProps {
       index: number | string;
@@ -598,32 +611,47 @@ const Gpt = () => {
       const lastHistoryResult =
         get(lastHistoryItem, "result.content") ||
         get(lastHistoryItem, "result.message.content");
+      const showMyMessage =
+        !realtime || !(realtime && source !== "history" && size(gpt));
+      const showReply =
+        (!realtime && size(trim(gpt)) > 0) ||
+        (realtime && source !== "history" && gpt !== lastHistoryResult);
 
       return (
         <React.Fragment key={`container-${index}`}>
-          {!realtime && (
+          {showMyMessage && (
             <ListItem key={`me-${index}`} sx={sxChatMeItem}>
               <ListItemText
+                primaryTypographyProps={{ component: "div" }}
+                secondaryTypographyProps={{ component: "div" }}
                 primary={me}
                 secondary={
-                  <Grid
-                    container
+                  <Stack
                     direction="row"
+                    spacing={1}
                     justifyContent="right"
                     alignItems="center"
                   >
-                    <Grid>(You)</Grid>
-                    <Grid>
-                      {isNumber(index) && (
+                    <small>{"(Me)"}&nbsp;</small>
+                    {isNumber(index) && (
+                      <>
                         <IconButton
                           size="small"
                           onClick={() => handleDeleteHistoryItem(index)}
                         >
                           <DeleteIcon color="warning" />
                         </IconButton>
-                      )}
-                    </Grid>
-                  </Grid>
+                        <IconButton
+                          size="small"
+                          onClick={() =>
+                            setShowHistoryDebug(get(history, [index]))
+                          }
+                        >
+                          <InfoIcon color="primary" />
+                        </IconButton>
+                      </>
+                    )}
+                  </Stack>
                 }
                 sx={
                   !realtime
@@ -633,11 +661,11 @@ const Gpt = () => {
               />
             </ListItem>
           )}
-          {/* Don't display the last history item's response */}
-          {(!realtime && size(trim(gpt)) > 0) ||
-          (realtime && source !== "history" && gpt !== lastHistoryResult) ? (
+          {/* Don't display the last history item's response if it duplicates the realtime response */}
+          {showReply ? (
             <ListItem key={`response-${index}`} sx={sxGptItem}>
               <ListItemText
+                primaryTypographyProps={{ component: "div" }}
                 primary={
                   <ReactMarkdown
                     className="results-box"
@@ -646,7 +674,7 @@ const Gpt = () => {
                     {gpt}
                   </ReactMarkdown>
                 }
-                secondary={"(LLM)"}
+                secondary={<small>{"(LLM)"}</small>}
                 sx={sxGptItemText}
               ></ListItemText>
             </ListItem>
@@ -658,50 +686,86 @@ const Gpt = () => {
     };
 
     return (
-      <Card>
-        <CardContent>
-          <List dense={true}>
-            {/* History items */}
-            {map(
-              history,
-              (chat, index) =>
-                chat && (
-                  <ItemPair
-                    {...{
-                      index,
-                      me: chat.query,
-                      gpt: get(
-                        chat,
-                        "result.content",
-                        get(chat, "result.message.content"),
-                      ),
-                      realtime: false,
-                      source: "history",
-                    }}
-                  />
-                ),
-            )}
-            {/* Realtime/current item */}
-            {query &&
-            (streamContentString ||
-              get(result, "content", get(result, "message.content"))) ? (
-              <ItemPair
-                {...{
-                  index: "realtime",
-                  me: query,
-                  gpt:
-                    streamContentString ||
-                    get(result, "content", get(result, "message.content")),
-                  realtime: true,
-                  sending,
-                }}
-              />
-            ) : (
-              <React.Fragment />
-            )}
-          </List>
-        </CardContent>
-      </Card>
+      <>
+        <Card>
+          <CardContent>
+            <List dense={true}>
+              {/* History items */}
+              {size(history) ? (
+                map(
+                  history,
+                  (chat, index) =>
+                    chat && (
+                      <ItemPair
+                        key={`component-call-history-${index}`}
+                        {...{
+                          index,
+                          me: chat.query,
+                          gpt: get(
+                            chat,
+                            "result.content",
+                            get(chat, "result.message.content"),
+                          ),
+                          realtime: false,
+                          source: "history",
+                        }}
+                      />
+                    ),
+                )
+              ) : (
+                <ListItem key="_default">
+                  <ListItemText>
+                    Please ask me something, or else my matricies will rust! 😟
+                  </ListItemText>
+                </ListItem>
+              )}
+              {/* Realtime/current item */}
+              {query ||
+              streamContentString ||
+              get(result, "message.content") ||
+              get(result, "content") ? (
+                <ItemPair
+                  key={`component-call-realtime`}
+                  {...{
+                    index: "realtime",
+                    me: query,
+                    gpt:
+                      streamContentString ||
+                      get(result, "message.content") ||
+                      get(result, "content"),
+                    realtime: true,
+                    sending,
+                  }}
+                />
+              ) : (
+                <React.Fragment />
+              )}
+            </List>
+          </CardContent>
+        </Card>
+        <Dialog
+          scroll="paper"
+          open={showHistoryDebug !== false}
+          onClose={() => setShowHistoryDebug(false)}
+        >
+          <DialogTitle>History Item Information</DialogTitle>
+          <DialogContent dividers={true} className="debug-DialogContent">
+            <h4>Query and response</h4>
+            <CodeFormat
+              code={JSON.stringify(showHistoryDebug, null, 2)}
+              language="json"
+            />
+          </DialogContent>
+          <DialogActions>
+            <Button
+              variant="outlined"
+              onClick={() => setShowHistoryDebug(false)}
+            >
+              Close
+            </Button>
+          </DialogActions>
+        </Dialog>
+      </>
     );
   };
 
@@ -720,13 +784,9 @@ const Gpt = () => {
           <h4>LLM Response</h4>
           <Card>
             <CardContent>
-              <TextField
-                multiline
-                maxRows={10}
-                value={result ? JSON.stringify(debugResult, null, 2) : ""}
-                aria-readonly
-                fullWidth
-                placeholder="Debugging information..."
+              <CodeFormat
+                code={result ? JSON.stringify(debugResult, null, 2) : ""}
+                language="json"
               />
             </CardContent>
           </Card>
@@ -740,48 +800,121 @@ const Gpt = () => {
     );
   };
 
+  /**
+   * @component
+   */
+  const Sidebar = () => {
+    return (
+      <Drawer
+        variant="permanent"
+        open={sidebarOpen}
+        sx={{
+          width: sidebarOpen ? 240 : 50, // minimal width when closed
+          flexShrink: 0,
+          "& .MuiDrawer-paper": {
+            width: sidebarOpen ? 240 : 50,
+            transition: "width 0.3s",
+            overflow: "hidden", // Prevent content overflow when closed
+          },
+        }}
+      >
+        {/* Sidebar Toggle Button */}
+        <Box
+          sx={{
+            display: "flex",
+            justifyContent: sidebarOpen ? "flex-end" : "center", // Centered when closed
+            position: sidebarOpen ? "absolute" : "absolute", // Position outside when closed
+            bottom: 35,
+            right: sidebarOpen ? 0 : "-2px", // Adjust to ensure visibility when closed
+            zIndex: 1,
+            width: "100%",
+          }}
+        >
+          <Tooltip title="Open Sidebar">
+            <IconButton onClick={() => setSidebarOpen(!sidebarOpen)}>
+              {sidebarOpen ? <ChevronLeft /> : <ChevronRight />}
+            </IconButton>
+          </Tooltip>
+        </Box>
+
+        {/* Sidebar Content */}
+        {sidebarOpen && (
+          <Box sx={{ padding: "45px 10px 10px 10px" }}>
+            Hi, I'm a sidebar. In the future, I will contain a history of user
+            sessions.
+          </Box>
+        )}
+      </Drawer>
+    );
+  };
+
   return (
     <Box
       sx={{
         position: "relative",
         height: "100vh",
+        display: "flex",
       }}
     >
-      <Grid container direction="column" size={12} sx={{ height: "100%" }}>
-        <Grid
-          ref={streamingBoxRef}
-          sx={{ flexGrow: 1, overflowY: "auto", pb: 5, mb: 20 }}
-        >
-          <StreamingResultBox />
-          <div ref={streamingEndRef} />
-        </Grid>
-      </Grid>
+      <Sidebar />
+
+      {/* Chat window */}
       <Box
         sx={{
-          position: "fixed",
-          bottom: 0,
-          width: "100%",
-          padding: "10px 10px 0 0",
-          boxShadow: "0 -2px 5px rgba(0,0,0,0.1)",
+          flexGrow: 1,
+          display: "flex",
+          flexDirection: "column",
+          height: "100vh",
+          overflow: "hidden",
         }}
       >
-        <QueryBox
-          handleQuery={handleQuery}
-          handleSend={handleSend}
-          handleCancel={handleCancel}
-          models={models}
-          selectedModel={selectedModel}
-          handleModelChange={handleModelChange}
-          temperature={temperature}
-          handleTemperatureChange={handleTemperatureChange}
-          stream={stream}
-          handleStreamChange={handleStreamChange}
-          loading={loading}
-          sending={sending}
-          showDebug={showDebug}
-          setShowDebug={setShowDebug}
-        />
+        {/* Scrollable Chat Area */}
+        <Grid
+          container
+          direction="column"
+          sx={{ flexGrow: 1, overflow: "hidden" }}
+        >
+          <Grid
+            sx={{
+              flexGrow: 1,
+              overflowY: "auto",
+              marginBottom: 1,
+            }}
+          >
+            <StreamingResultBox />
+            <div ref={streamingEndRef} />
+          </Grid>
+        </Grid>
+
+        {/* QueryBox */}
+        <Box
+          sx={{
+            width: "100%",
+            flexShrink: 0, // Prevents QueryBox container from shrinking
+            padding: "6px 1px 5px 1px",
+            boxShadow: "0 -2px 5px rgba(0,0,0,0.1)",
+            backgroundColor: "rgba(0,0,0,0.05)",
+          }}
+        >
+          <QueryBox
+            handleQuery={handleQuery}
+            handleSend={handleSend}
+            handleCancel={handleCancel}
+            models={models}
+            selectedModel={selectedModel}
+            handleModelChange={handleModelChange}
+            temperature={temperature}
+            handleTemperatureChange={handleTemperatureChange}
+            stream={stream}
+            handleStreamChange={handleStreamChange}
+            loading={loading}
+            sending={sending}
+            showDebug={showDebug}
+            setShowDebug={setShowDebug}
+          />
+        </Box>
       </Box>
+
       <DebuggingResultDialog />
     </Box>
   );

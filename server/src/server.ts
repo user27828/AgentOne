@@ -5,7 +5,6 @@ import express from "express";
 import path from "path";
 import dotenv from "dotenv";
 import cors from "cors";
-import { has } from "lodash";
 
 dotenv.config({ path: path.resolve(__dirname, "../../.env") });
 

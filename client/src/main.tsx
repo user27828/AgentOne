@@ -65,18 +65,17 @@ const App = () => {
           mode: darkMode ? "dark" : "light",
         },
         typography: {
-          fontSize: 16,
+          fontSize: 17,
           fontFamily: [
-            '"Helvetica"',
-            "Arial",
+            "Ginto",
+            "ui-sans-serif",
+            "system-ui",
             "sans-serif",
-            '"Segoe UI Emoji"',
-            '"Segoe UI Symbol"',
-            '"Segoe UI"',
-            "Roboto",
-            "-apple-system",
-            "BlinkMacSystemFont",
-            '"Apple Color Emoji"',
+            "Segoe UI Emoji",
+            "Segoe UI Symbol",
+            "Noto Color Emoji",
+            "Segoe UI Emoji",
+            "Apple Color Emoji",
           ].join(","),
         },
       }),
@@ -104,7 +103,7 @@ const App = () => {
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <IconButton
-        sx={{ position: "absolute", top: 3, left: 10, zIndex: 10000 }}
+        sx={{ position: "absolute", top: 3, left: 2, zIndex: 10000 }}
         onClick={toggleTheme}
         color="inherit"
       >
