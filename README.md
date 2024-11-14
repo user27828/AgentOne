@@ -47,7 +47,6 @@ Different models can be chosen from this list: [Ollama Library](https://ollama.c
 
 ## Known issues
 
-- Scroll to latest response is not working.
 - Not profitable
 
 ## TODO
