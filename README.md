@@ -42,7 +42,7 @@ Different models can be chosen from this list: [Ollama Library](https://ollama.c
 
 - `yarn dev` - Run the client and server in dev mode (hot reloading, transpile/interpret on save, etc)
 - `yarn build` - Transpile the TypeScript files, and other files into a distributable package in `client/dist/*` and `server/dist/*`
-- `yarn start` - Builds the environments and runs the built files - not ideal for dev.
+- `yarn start` - Run the built files. This assumes you previously ran `yarn build`. Currently, vite just serves a dev instance. I will circle back to this and make express serve the bundle for local validation purposes.
 
 ## Known issues
 
