@@ -52,6 +52,7 @@ Different models can be chosen from this list: [Ollama Library](https://ollama.c
 
 ## TODO
 
+- Chat session history (on the sidebar)
 - Add more functionality offered by the Ollama API.
 
 ## References:
