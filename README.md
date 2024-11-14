@@ -1,4 +1,4 @@
-# AgentOne - Vite/React front/backend for Ollama
+# AgentOne - Vite+React front+backend for Ollama servers
 
 This app provides a starter frontend for Ollama servers that provide a REST API interface.
 
