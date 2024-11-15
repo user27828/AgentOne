@@ -36,12 +36,15 @@ import {
 import {
   ChevronLeft,
   ChevronRight,
+  ContentCopy as CopyIcon,
   Send as SendIcon,
   Cancel as CancelIcon,
   Info as InfoIcon,
   Settings as SettingsIcon,
   Delete as DeleteIcon,
   PestControl as DebugIcon,
+  ThumbUp as ThumbUpIcon,
+  MoveDown,
 } from "@mui/icons-material";
 import { useCookies } from "react-cookie";
 import ReactMarkdown from "react-markdown";
@@ -112,7 +115,58 @@ const apiListModels = async () => {
   return [];
 };
 
+/**
+ * types for useCopyHandler()
+ */
+type SuccessState = {
+  [key: string]: boolean;
+};
+interface UseCopyHandlerResult {
+  handleCopy: (text: string, identifier?: string) => Promise<void>;
+  isShowingSuccess: (identifier?: string) => boolean;
+}
+
+/**
+ * Hook for copy functionality
+ * @param successDuration
+ * @returns
+ */
+const useCopyHandler = (
+  successDuration: number = 1200,
+): UseCopyHandlerResult => {
+  const [successStates, setSuccessStates] = useState<SuccessState>({});
+
+  const handleCopy = async (text: string, identifier?: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+
+      const key = identifier || "default";
+      setSuccessStates((prev) => ({
+        ...prev,
+        [key]: true,
+      }));
+
+      setTimeout(() => {
+        setSuccessStates((prev) => ({
+          ...prev,
+          [key]: false,
+        }));
+      }, successDuration);
+    } catch (err) {
+      console.error("Failed to copy text:", err);
+    }
+  };
+
+  const isShowingSuccess = (identifier?: string): boolean => {
+    const key = identifier || "default";
+    return get(successStates, key, false);
+  };
+
+  return { handleCopy, isShowingSuccess };
+};
+
 interface QueryBoxProps {
+  queryFieldRef?: any;
   handleQuery: (event: React.ChangeEvent<HTMLInputElement> | string) => void;
   handleSend: (event: React.FormEvent) => void;
   handleCancel: () => void;
@@ -136,6 +190,7 @@ interface QueryBoxProps {
  * @returns {JSX.Element}
  */
 const QueryBox: React.FC<QueryBoxProps> = ({
+  queryFieldRef,
   handleQuery,
   handleSend,
   handleCancel,
@@ -163,6 +218,9 @@ const QueryBox: React.FC<QueryBoxProps> = ({
     handleSend(event);
     setLocalQuery("");
     setShowSettings(false); // Close settings panel on send
+    if (queryFieldRef.current) {
+      queryFieldRef.current.value = "";
+    }
   };
 
   /**
@@ -186,7 +244,7 @@ const QueryBox: React.FC<QueryBoxProps> = ({
               <TextField
                 multiline
                 maxRows={5}
-                value={localQuery}
+                //value={localQuery}
                 onChange={handleLocalQuery}
                 onKeyDown={handleKeyPress}
                 placeholder={
@@ -223,6 +281,7 @@ const QueryBox: React.FC<QueryBoxProps> = ({
                     ),
                   },
                 }}
+                inputRef={queryFieldRef}
               />
             </form>
           </Grid>
@@ -324,6 +383,7 @@ const QueryBox: React.FC<QueryBoxProps> = ({
  */
 const Gpt = () => {
   const [query, setQuery] = useState<string>("");
+  const queryFieldRef = useRef<HTMLInputElement | null>(null);
   const [sending, setSending] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
   const [result, setResult] = useState<{ [key: string]: any }>({});
@@ -343,6 +403,7 @@ const Gpt = () => {
   const [showDebug, setShowDebug] = useState<boolean>(false);
   const controllerRef = useRef<AbortController | null>(null);
   const streamingEndRef = useRef<null | HTMLDivElement>(null);
+  const { handleCopy, isShowingSuccess } = useCopyHandler();
 
   /**
    * Get the initial list of available LLMs from the Ollama service
@@ -390,6 +451,18 @@ const Gpt = () => {
     },
     [query, selectedModel],
   );
+
+  /**
+   * Move a value to the query box
+   * @param {string} value
+   */
+  const moveQueryFocus = (value: string) => {
+    setQuery(value);
+    if (queryFieldRef.current) {
+      queryFieldRef.current.value = value;
+      queryFieldRef.current.focus();
+    }
+  };
 
   /**
    * Send a query to the LLM server for evaluation
@@ -647,7 +720,9 @@ const Gpt = () => {
                           size="small"
                           onClick={() => handleDeleteHistoryItem(index)}
                         >
-                          <DeleteIcon color="warning" />
+                          <Tooltip title="Delete this item pair">
+                            <DeleteIcon color="warning" />
+                          </Tooltip>
                         </IconButton>
                         <IconButton
                           size="small"
@@ -655,7 +730,31 @@ const Gpt = () => {
                             setShowHistoryDebug(get(history, [index]))
                           }
                         >
-                          <InfoIcon color="primary" />
+                          <Tooltip title="Show debug data for this query/response pair">
+                            <InfoIcon color="primary" />
+                          </Tooltip>
+                        </IconButton>
+                        <IconButton
+                          size="small"
+                          onClick={() => handleCopy(me, `query-${index}`)}
+                        >
+                          <Tooltip title="Copy this query text">
+                            {isShowingSuccess(`query-${index}`) ? (
+                              <ThumbUpIcon
+                                sx={{ color: "green", opacity: 0.5 }}
+                              />
+                            ) : (
+                              <CopyIcon color="primary" />
+                            )}
+                          </Tooltip>
+                        </IconButton>
+                        <IconButton
+                          size="small"
+                          onClick={() => size(me) && moveQueryFocus(me)}
+                        >
+                          <Tooltip title="Copy text to query editor">
+                            <MoveDown color="primary" />
+                          </Tooltip>
                         </IconButton>
                       </>
                     )}
@@ -676,6 +775,7 @@ const Gpt = () => {
             <ListItem key={`response-${index}`} sx={sxGptItem}>
               <ListItemText
                 primaryTypographyProps={{ component: "div" }}
+                secondaryTypographyProps={{ component: "div" }}
                 primary={
                   <ReactMarkdown
                     className="results-box"
@@ -684,7 +784,28 @@ const Gpt = () => {
                     {gpt}
                   </ReactMarkdown>
                 }
-                secondary={<small>{"(LLM)"}</small>}
+                secondary={
+                  <Stack
+                    direction="row"
+                    spacing={1}
+                    justifyContent="left"
+                    alignItems="center"
+                  >
+                    <small>{"(LLM)"}</small>
+                    <IconButton
+                      size="small"
+                      onClick={() => handleCopy(me, `response-${index}`)}
+                    >
+                      <Tooltip title="Copy this query text">
+                        {isShowingSuccess(`response-${index}`) ? (
+                          <ThumbUpIcon sx={{ color: "green", opacity: 0.5 }} />
+                        ) : (
+                          <CopyIcon color="primary" />
+                        )}
+                      </Tooltip>
+                    </IconButton>
+                  </Stack>
+                }
                 sx={sxGptItemText}
               ></ListItemText>
             </ListItem>
@@ -907,6 +1028,7 @@ const Gpt = () => {
           }}
         >
           <QueryBox
+            queryFieldRef={queryFieldRef}
             handleQuery={handleQuery}
             handleSend={handleSend}
             handleCancel={handleCancel}
