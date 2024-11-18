@@ -128,8 +128,8 @@ interface UseCopyHandlerResult {
 
 /**
  * Hook for copy functionality
- * @param successDuration
- * @returns
+ * @param successDuration - how long should the "success" icon display before reverting
+ * @returns {object} - Hook functions
  */
 const useCopyHandler = (
   successDuration: number = 1200,
@@ -241,48 +241,64 @@ const QueryBox: React.FC<QueryBoxProps> = ({
         <Grid container spacing={2}>
           <Grid size={12}>
             <form onSubmit={(e) => e.preventDefault()}>
-              <TextField
-                multiline
-                maxRows={5}
-                //value={localQuery}
-                onChange={handleLocalQuery}
-                onKeyDown={handleKeyPress}
-                placeholder={
-                  !sending ? "Enter a query" : "(Waiting for response...)"
+              <Tooltip
+                title={
+                  !size(models)
+                    ? "Loading models... or no models available"
+                    : null
                 }
-                fullWidth
-                disabled={loading || sending}
-                slotProps={{
-                  input: {
-                    endAdornment: (
-                      <InputAdornment position="end">
-                        <Tooltip title="Send query.  Press enter or click this button to send. Shift+Enter for newlines.">
-                          <IconButton
-                            component="label"
-                            role={undefined}
-                            onClick={handleLocalSend}
-                            disabled={sending}
-                          >
-                            <SendIcon color={sending ? "inherit" : "primary"} />
-                          </IconButton>
-                        </Tooltip>
-                        &nbsp;&nbsp;
-                        <Tooltip title="Cancel processing query">
-                          <IconButton
-                            component="label"
-                            role={undefined}
-                            onClick={handleCancel}
-                            disabled={!sending}
-                          >
-                            <CancelIcon color={sending ? "error" : "inherit"} />
-                          </IconButton>
-                        </Tooltip>
-                      </InputAdornment>
-                    ),
-                  },
-                }}
-                inputRef={queryFieldRef}
-              />
+              >
+                <TextField
+                  multiline
+                  maxRows={5}
+                  //value={localQuery}
+                  onChange={handleLocalQuery}
+                  onKeyDown={handleKeyPress}
+                  placeholder={
+                    !sending ? "Enter a query" : "(Waiting for response...)"
+                  }
+                  fullWidth
+                  disabled={loading || sending || !size(models)}
+                  slotProps={{
+                    input: {
+                      endAdornment: (
+                        <InputAdornment position="end">
+                          <Tooltip title="Send query.  Press enter or click this button to send. Shift+Enter for newlines.">
+                            <IconButton
+                              component="label"
+                              role={undefined}
+                              onClick={handleLocalSend}
+                              disabled={sending || !size(models)}
+                            >
+                              <SendIcon
+                                color={
+                                  sending || !size(models)
+                                    ? "inherit"
+                                    : "primary"
+                                }
+                              />
+                            </IconButton>
+                          </Tooltip>
+                          &nbsp;&nbsp;
+                          <Tooltip title="Cancel processing query">
+                            <IconButton
+                              component="label"
+                              role={undefined}
+                              onClick={handleCancel}
+                              disabled={!sending}
+                            >
+                              <CancelIcon
+                                color={sending ? "error" : "inherit"}
+                              />
+                            </IconButton>
+                          </Tooltip>
+                        </InputAdornment>
+                      ),
+                    },
+                  }}
+                  inputRef={queryFieldRef}
+                />
+              </Tooltip>
             </form>
           </Grid>
           <Grid container size={12}>
@@ -308,7 +324,7 @@ const QueryBox: React.FC<QueryBoxProps> = ({
                 <Collapse in={showSettings}>
                   <FormControl
                     fullWidth
-                    disabled={loading || sending}
+                    disabled={loading || sending || !size(models)}
                     sx={{ mb: 1 }}
                   >
                     <InputLabel>Model</InputLabel>
@@ -337,7 +353,7 @@ const QueryBox: React.FC<QueryBoxProps> = ({
                   </FormControl>
                   <FormControl
                     fullWidth
-                    disabled={loading || sending}
+                    disabled={loading || sending || !size(models)}
                     sx={{ mb: 1 }}
                   >
                     <InputLabel>Temperature</InputLabel>
@@ -345,6 +361,7 @@ const QueryBox: React.FC<QueryBoxProps> = ({
                       title={`Currently: ${temperature}.  Randomness of results/"truth" vs "creativity"`}
                     >
                       <Slider
+                        disabled={!size(models)}
                         value={temperature}
                         onChange={handleTemperatureChange}
                         step={0.1}
@@ -358,6 +375,7 @@ const QueryBox: React.FC<QueryBoxProps> = ({
                     control={
                       <Tooltip title="Display results as they arrive from the API">
                         <Switch
+                          disabled={!size(models)}
                           checked={stream}
                           onChange={handleStreamChange}
                         />
