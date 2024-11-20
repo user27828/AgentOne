@@ -1,0 +1,47 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "run-client-dev-server",
+      "type": "shell",
+      "command": "yarn",
+      "args": ["dev:client"],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "custom",
+        "pattern": {
+          "regexp": "ready in (\\d+\\.\\d+)ms",
+          "file": 1
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "vite v",
+          "endsPattern": "ready in (\\d+\\.\\d+)ms"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "options": {
+        "env": {
+          "NODE_ENV": "development"
+        }
+      }
+    },
+    {
+      "label": "kill-client-dev-server",
+      "type": "shell",
+      "command": "pkill",
+      "args": ["-f", "yarn dev:client"],
+      "presentation": {
+        "reveal": "never",
+        "panel": "shared"
+      }
+    }
+  ]
+}

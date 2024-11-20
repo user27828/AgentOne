@@ -7,9 +7,26 @@
     {
       "type": "node",
       "request": "launch",
-      "name": "Launch (Yarn)",
+      "name": "Debug Server (Express)",
+      "cwd": "${workspaceFolder}/server",
       "runtimeExecutable": "yarn",
-      "runtimeArgs": ["dev"]
+      "runtimeArgs": ["dev:server"],
+      "skipFiles": ["<node_internals>/**"],
+      "env": {
+        "NODE_ENV": "development" // Set any environment variables needed by the server
+      }
+    },
+    {
+      "type": "chrome",
+      "request": "launch",
+      "name": "Debug Client (Vite)",
+      "url": "http://localhost:5173", // Or whatever port your Vite dev server uses
+      "webRoot": "${workspaceFolder}/client", // Path to your client project
+      "sourceMaps": true,
+      "trace": true,
+      "skipFiles": ["<node_internals>/**"],
+      "preLaunchTask": "run-client-dev-server",
+      "postDebugTask": "kill-client-dev-server"
     }
   ]
 }
