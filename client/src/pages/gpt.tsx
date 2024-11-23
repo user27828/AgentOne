@@ -2,54 +2,60 @@
  * GPT chat page
  */
 import React, { useState, useCallback, useEffect, useRef } from "react";
-import { get, isNumber, isString, last, map, size, trim } from "lodash";
+import { get, has, isString, last, size, trim } from "lodash";
 import {
-  Button,
   Box,
+  Button,
   Card,
   CardContent,
+  CircularProgress,
   Collapse,
   Dialog,
-  DialogTitle,
-  DialogContent,
   DialogActions,
+  DialogContent,
+  DialogTitle,
+  Divider,
   Drawer,
-  TextField,
+  FormControl,
+  FormControlLabel,
+  Grid2 as Grid,
+  IconButton,
   InputAdornment,
+  InputLabel,
   List,
   ListItem,
+  ListItemButton,
   ListItemText,
-  Select,
+  Menu,
   MenuItem,
-  FormControl,
-  Grid2 as Grid,
-  InputLabel,
+  Select,
+  SelectChangeEvent,
+  Slider,
   Stack,
   Switch,
-  FormControlLabel,
-  Slider,
-  SelectChangeEvent,
-  CircularProgress,
+  TextField,
   Tooltip,
-  IconButton,
 } from "@mui/material";
 import {
+  Add,
+  Cancel as CancelIcon,
   ChevronLeft,
   ChevronRight,
   ContentCopy as CopyIcon,
-  Send as SendIcon,
-  Cancel as CancelIcon,
-  Info as InfoIcon,
-  Settings as SettingsIcon,
   Delete as DeleteIcon,
-  PestControl as DebugIcon,
-  ThumbUp as ThumbUpIcon,
+  Info as InfoIcon,
+  MoreVert,
   MoveDown,
+  PestControl as DebugIcon,
+  Send as SendIcon,
+  Settings as SettingsIcon,
+  ThumbUp as ThumbUpIcon,
 } from "@mui/icons-material";
 import { useCookies } from "react-cookie";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import CodeFormat from "../components/CodeFormat";
+import slugid from "slugid";
 import "../App.css";
 
 const serverUrl = `${import.meta.env.VITE_API_HOST}:${import.meta.env.VITE_API_PORT}`;
@@ -87,7 +93,7 @@ const sxGptItemText = {
  * @returns {JSON} - History list
  */
 const loadHistory = () => {
-  const savedHistory = localStorage.getItem("queryHistory");
+  const savedHistory = localStorage.getItem("history");
   return savedHistory ? JSON.parse(savedHistory) : [];
 };
 
@@ -96,7 +102,7 @@ const loadHistory = () => {
  * @param {object} history - History object to store
  */
 const saveHistory = (history: any) => {
-  localStorage.setItem("queryHistory", JSON.stringify(history));
+  localStorage.setItem("history", JSON.stringify(history));
 };
 
 /**
@@ -411,7 +417,8 @@ const Gpt = () => {
   const [stream, setStream] = useState<boolean>(true);
   const [streamContent, setStreamContent] = useState<any>([]);
   const [streamContentString, setStreamContentString] = useState<string>("");
-  const [history, setHistory] = useState(loadHistory());
+  const [history, setHistory] = useState<any[]>(loadHistory());
+  const [activeHistoryIndex, setActiveHistoryIndex] = useState<number>(0); // Track currently active history
   const [showHistoryDebug, setShowHistoryDebug] = useState<boolean | any>(
     false,
   );
@@ -419,9 +426,29 @@ const Gpt = () => {
   const [cookies, setCookie] = useCookies(["settings"]);
   const [sidebarOpen, setSidebarOpen] = React.useState(false);
   const [showDebug, setShowDebug] = useState<boolean>(false);
+  const [uuids, setUuids] = useState<{ session: string; chat: string }>({
+    session: "",
+    chat: "",
+  });
   const controllerRef = useRef<AbortController | null>(null);
   const streamingEndRef = useRef<null | HTMLDivElement>(null);
   const { handleCopy, isShowingSuccess } = useCopyHandler();
+
+  const createNewHistoryItem = () => {
+    const newHistoryItem = {
+      name: "Chat on " + new Date().toLocaleString(),
+      model: selectedModel,
+      temperature: temperature,
+      created_dt: new Date().toISOString(),
+      updated_dt: new Date().toISOString(),
+      sessionUid: slugid.nice(),
+      chat: [],
+    };
+
+    setHistory((prevHistory) => [...prevHistory, newHistoryItem]);
+    setActiveHistoryIndex(history.length); // Set new item as active
+    saveHistory([...history, newHistoryItem]);
+  };
 
   /**
    * Get the initial list of available LLMs from the Ollama service
@@ -431,18 +458,6 @@ const Gpt = () => {
       const availableModels = await apiListModels();
       setModels(availableModels);
       setLoading(false);
-      if (availableModels.length > 0) {
-        const defaultModel = cookies.settings?.model || availableModels[0];
-        setSelectedModel(defaultModel);
-        setCookie(
-          "settings",
-          { ...cookies.settings, model: defaultModel },
-          {
-            path: "/",
-            sameSite: "lax",
-          },
-        );
-      }
     };
     fetchModels();
 
@@ -450,6 +465,15 @@ const Gpt = () => {
     const savedSettings = cookies.settings || {};
     setTemperature(savedSettings.temperature || 0.7);
     setStream(savedSettings.stream || stream);
+    setSidebarOpen(savedSettings.sidebarOpen || sidebarOpen);
+    setSelectedModel(savedSettings.model || selectedModel || models[0]);
+
+    // Initialize history if it's empty, creating the first history item
+    if (!history.length) {
+      createNewHistoryItem();
+    } else {
+      setActiveHistoryIndex(history.length - 1);
+    }
   }, []);
 
   // Scroll to the bottom of the StreamingResultBox on updates
@@ -488,6 +512,8 @@ const Gpt = () => {
    * @param {string} model - Selected LLM model
    * @param {number} temperature - LLM temperature
    * @param {boolean} stream - Stream response?
+   * @param {string} sessionUid - UUID for the specific session
+   * @param {string} chatUid - UUID for the specific chat
    * @param {object} controller - Fetch controller for aborting
    * @returns {JSON} - JSON object or stream of objects
    */
@@ -496,17 +522,30 @@ const Gpt = () => {
     model: string,
     temperature: number,
     stream: boolean,
+    sessionUid: string,
+    chatUid: string,
     controller: AbortController,
   ) => {
     const response = await fetch(`${serverUrl}/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query: trim(query), model, temperature, stream }),
+      body: JSON.stringify({
+        query: trim(query),
+        model,
+        temperature,
+        stream,
+        sessionUid,
+        chatUid,
+      }),
       signal: controller.signal,
     });
     if (response.ok) {
+      const sessionUid = response.headers.get("X-Session-Uid") || "";
+      const chatUid = response.headers.get("X-Chat-Uid") || "";
+      setUuids({ session: sessionUid, chat: chatUid });
       setStreamContent([]);
       setStreamContentString("");
+      setResult({});
 
       if (stream) {
         let _result = "";
@@ -557,13 +596,15 @@ const Gpt = () => {
         selectedModel,
         temperature,
         stream,
+        history[activeHistoryIndex]?.sessionUid,
+        "",
         controllerRef.current,
       ).then(() => {
         setSending(false);
         setPendingHistory(true);
       });
     }
-  }, [query, sending]);
+  }, [query, sending, activeHistoryIndex]);
 
   /**
    * Save to history
@@ -578,18 +619,35 @@ const Gpt = () => {
     ) {
       // Local history
       let _result = {};
+      const updatedHistory = [...history];
+      const currentHistoryItem = updatedHistory[activeHistoryIndex];
+
       if (stream) {
         const lastObject = last(streamContent) || {};
         _result = {
           ...lastObject,
           content: streamContentString,
-          message: { role: get(lastObject, "message.role"), content: "" },
+          message: {
+            role: get(lastObject, "message.role"),
+            content: "",
+          },
         };
       } else {
         _result = result;
       }
-      const newHistoryItem = { query, result: _result };
-      const updatedHistory = [...history, newHistoryItem];
+
+      const updatedHistoryItem = {
+        ...currentHistoryItem,
+        model: selectedModel,
+        temperature: temperature,
+        updated_dt: new Date().toISOString(),
+        chat: [
+          ...(currentHistoryItem.chat || []),
+          { query, chatUid: slugid.nice(), result: _result },
+        ],
+      };
+
+      updatedHistory[activeHistoryIndex] = updatedHistoryItem;
       setHistory(updatedHistory);
       saveHistory(updatedHistory);
       setPendingHistory(false);
@@ -607,11 +665,13 @@ const Gpt = () => {
    * Delete specific history item
    * @param {integer} index - History item by index
    */
-  const handleDeleteHistoryItem = (index: number) => {
-    const updatedHistory = history.filter(
-      (_: unknown, i: number) => i !== index,
+  const handleDeleteHistoryMessage = (index: number) => {
+    const updatedHistoryChat = history[activeHistoryIndex].chat.filter(
+      (_: void, _index: number) => _index !== index,
     );
-    setHistory(updatedHistory);
+    const updatedHistory = history;
+    updatedHistory[activeHistoryIndex].chat = updatedHistoryChat;
+    setHistory([...updatedHistory]);
     saveHistory(updatedHistory);
   };
 
@@ -673,221 +733,174 @@ const Gpt = () => {
     [cookies, setCookie],
   );
 
+  const handleToggleSidebar = useCallback(() => {
+    setCookie(
+      "settings",
+      { ...cookies.settings, sidebarOpen: !sidebarOpen },
+      {
+        path: "/",
+        sameSite: "lax",
+      },
+    );
+    setSidebarOpen(!sidebarOpen);
+  }, [sidebarOpen]);
+
   /**
    * LLM results
    * @component
    * @returns {JSX.Element}
    */
   const StreamingResultBox = () => {
-    /**
-     * Display an <Item> pair for the chat "gpt" vs "me"
-     */
-    interface ItemPairProps {
-      index: number | string;
-      me: string;
-      gpt: string;
-      realtime?: boolean | null;
-      sending?: boolean | null;
-      source?: string | null;
+    const lastHistoryItem = last(history) || [];
+    const lastHistoryChat = last(lastHistoryItem?.chat) || {};
+    if (!has(history, [activeHistoryIndex])) {
+      // Active history item index might have been deleted
+      setActiveHistoryIndex(history.length - 1);
     }
-    const ItemPair: React.FC<ItemPairProps> = ({
-      index,
-      me,
-      gpt,
-      realtime = false,
-      sending = false,
-      source = null,
-    }) => {
-      const lastHistoryItem = last(history) || [];
-      // const lastHistoryQuery = get(lastHistoryItem, "query");
-      const lastHistoryResult =
-        get(lastHistoryItem, "result.content") ||
-        get(lastHistoryItem, "result.message.content");
-      const showMyMessage =
-        // Show all history messages
-        !realtime ||
-        // Show realtime messages where the source isn't history,
-        // GPT said something, and my realtime query isn't the last history query
-        (realtime &&
-          source !== "history" &&
-          size(gpt) &&
-          me !== get(lastHistoryItem, "query"));
-      const showReply =
-        (!realtime && size(trim(gpt)) > 0) ||
-        (realtime && source !== "history" && gpt !== lastHistoryResult);
-
-      return (
-        <React.Fragment key={`container-${index}`}>
-          {showMyMessage ? (
-            <ListItem key={`me-${index}`} sx={sxChatMeItem}>
-              <ListItemText
-                primaryTypographyProps={{ component: "div" }}
-                secondaryTypographyProps={{ component: "div" }}
-                primary={me}
-                secondary={
-                  <Stack
-                    direction="row"
-                    spacing={1}
-                    justifyContent="right"
-                    alignItems="center"
-                  >
-                    <small>{"(Me)"}&nbsp;</small>
-                    {isNumber(index) && (
-                      <>
-                        <IconButton
-                          size="small"
-                          onClick={() => handleDeleteHistoryItem(index)}
-                        >
-                          <Tooltip title="Delete this item pair">
-                            <DeleteIcon color="warning" />
-                          </Tooltip>
-                        </IconButton>
-                        <IconButton
-                          size="small"
-                          onClick={() =>
-                            setShowHistoryDebug(get(history, [index]))
-                          }
-                        >
-                          <Tooltip title="Show debug data for this query/response pair">
-                            <InfoIcon color="primary" />
-                          </Tooltip>
-                        </IconButton>
-                        <IconButton
-                          size="small"
-                          onClick={() => handleCopy(me, `query-${index}`)}
-                        >
-                          <Tooltip title="Copy this query text">
-                            {isShowingSuccess(`query-${index}`) ? (
-                              <ThumbUpIcon
-                                sx={{ color: "green", opacity: 0.5 }}
-                              />
-                            ) : (
-                              <CopyIcon color="primary" />
-                            )}
-                          </Tooltip>
-                        </IconButton>
-                        <IconButton
-                          size="small"
-                          onClick={() => size(me) && moveQueryFocus(me)}
-                        >
-                          <Tooltip title="Copy text to query editor">
-                            <MoveDown color="primary" />
-                          </Tooltip>
-                        </IconButton>
-                      </>
-                    )}
-                  </Stack>
-                }
-                sx={
-                  !realtime
-                    ? sxChatMeItemText
-                    : { ...sxChatMeItemText, opacity: sending ? 0.5 : 0.9 }
-                }
-              />
-            </ListItem>
-          ) : (
-            <React.Fragment />
-          )}
-          {/* Don't display the last history item's response if it duplicates the realtime response */}
-          {showReply ? (
-            <ListItem key={`response-${index}`} sx={sxGptItem}>
-              <ListItemText
-                primaryTypographyProps={{ component: "div" }}
-                secondaryTypographyProps={{ component: "div" }}
-                primary={
-                  <ReactMarkdown
-                    className="results-box"
-                    remarkPlugins={[remarkGfm]}
-                  >
-                    {gpt}
-                  </ReactMarkdown>
-                }
-                secondary={
-                  <Stack
-                    direction="row"
-                    spacing={1}
-                    justifyContent="left"
-                    alignItems="center"
-                  >
-                    <small>{"(LLM)"}</small>
-                    <IconButton
-                      size="small"
-                      onClick={() => handleCopy(me, `response-${index}`)}
-                    >
-                      <Tooltip title="Copy this query text">
-                        {isShowingSuccess(`response-${index}`) ? (
-                          <ThumbUpIcon sx={{ color: "green", opacity: 0.5 }} />
-                        ) : (
-                          <CopyIcon color="primary" />
-                        )}
-                      </Tooltip>
-                    </IconButton>
-                  </Stack>
-                }
-                sx={sxGptItemText}
-              ></ListItemText>
-            </ListItem>
-          ) : (
-            <React.Fragment />
-          )}
-        </React.Fragment>
-      );
-    };
+    // Combine history and current query for display, filtering out the duplicate last message if needed
+    const chatToDisplay = [
+      ...(history[activeHistoryIndex]?.chat || []),
+      sending && query && query !== get(lastHistoryChat, "query")
+        ? { query, result: stream ? { content: streamContentString } : result }
+        : null, // Last duplicate filtered out below
+    ].filter(Boolean);
 
     return (
       <>
         <Card>
           <CardContent>
             <List dense={true}>
-              {/* History items */}
-              {size(history) ? (
-                map(
-                  history,
-                  (chat, index) =>
-                    chat && (
-                      <ItemPair
-                        key={`component-call-history-${index}`}
-                        {...{
-                          index,
-                          me: chat.query,
-                          gpt: get(
-                            chat,
-                            "result.content",
-                            get(chat, "result.message.content"),
-                          ),
-                          realtime: false,
-                          source: "history",
-                        }}
-                      />
-                    ),
-                )
+              {chatToDisplay.length > 0 &&
+              size(chatToDisplay.filter((v) => size(v.query) > 0)) > 0 ? (
+                chatToDisplay.map((chat, index) => {
+                  const me = chat.query;
+                  return (
+                    <React.Fragment key={`chat-item-${index}`}>
+                      <ListItem sx={sxChatMeItem}>
+                        <ListItemText
+                          primaryTypographyProps={{ component: "div" }}
+                          secondaryTypographyProps={{ component: "div" }}
+                          primary={chat.query}
+                          secondary={
+                            <Stack
+                              direction="row"
+                              spacing={1}
+                              justifyContent="right"
+                              alignItems="center"
+                            >
+                              <small>{"(Me)"}&nbsp;</small>
+                              {index <
+                                size(history[activeHistoryIndex].chat) && (
+                                <>
+                                  <IconButton
+                                    size="small"
+                                    onClick={() =>
+                                      handleDeleteHistoryMessage(index)
+                                    }
+                                  >
+                                    <Tooltip title="Delete this item pair">
+                                      <DeleteIcon color="warning" />
+                                    </Tooltip>
+                                  </IconButton>
+                                  <IconButton
+                                    size="small"
+                                    onClick={() =>
+                                      setShowHistoryDebug(get(history, [index]))
+                                    }
+                                  >
+                                    <Tooltip title="Show debug data for this query/response pair">
+                                      <InfoIcon color="primary" />
+                                    </Tooltip>
+                                  </IconButton>
+                                  <IconButton
+                                    size="small"
+                                    onClick={() =>
+                                      handleCopy(me, `query-${index}`)
+                                    }
+                                  >
+                                    <Tooltip title="Copy this query text">
+                                      {isShowingSuccess(`query-${index}`) ? (
+                                        <ThumbUpIcon
+                                          sx={{ color: "green", opacity: 0.5 }}
+                                        />
+                                      ) : (
+                                        <CopyIcon color="primary" />
+                                      )}
+                                    </Tooltip>
+                                  </IconButton>
+                                  <IconButton
+                                    size="small"
+                                    onClick={() =>
+                                      size(me) && moveQueryFocus(me)
+                                    }
+                                  >
+                                    <Tooltip title="Copy text to query editor">
+                                      <MoveDown color="primary" />
+                                    </Tooltip>
+                                  </IconButton>
+                                </>
+                              )}
+                            </Stack>
+                          }
+                          sx={sxChatMeItemText}
+                        />
+                      </ListItem>
+                      {chat.result && ( // LLM response
+                        <ListItem sx={sxGptItem}>
+                          <ListItemText
+                            primaryTypographyProps={{ component: "div" }}
+                            secondaryTypographyProps={{ component: "div" }}
+                            primary={
+                              <ReactMarkdown
+                                className="results-box"
+                                remarkPlugins={[remarkGfm]}
+                              >
+                                {get(
+                                  chat,
+                                  "result.content",
+                                  get(chat, "result.message.content"),
+                                )}
+                              </ReactMarkdown>
+                            }
+                            secondary={
+                              <Stack
+                                direction="row"
+                                spacing={1}
+                                justifyContent="left"
+                                alignItems="center"
+                              >
+                                <small>{"(LLM)"}</small>
+                                <IconButton
+                                  size="small"
+                                  onClick={() =>
+                                    handleCopy(me, `response-${index}`)
+                                  }
+                                >
+                                  <Tooltip title="Copy this query text">
+                                    {isShowingSuccess(`response-${index}`) ? (
+                                      <ThumbUpIcon
+                                        sx={{ color: "green", opacity: 0.5 }}
+                                      />
+                                    ) : (
+                                      <CopyIcon color="primary" />
+                                    )}
+                                  </Tooltip>
+                                </IconButton>
+                              </Stack>
+                            }
+                            sx={sxGptItemText}
+                          />
+                        </ListItem>
+                      )}
+                    </React.Fragment>
+                  );
+                })
               ) : (
                 <ListItem key="_default">
                   <ListItemText>
                     Please ask me something, or else my matricies will rust! 😟
                   </ListItemText>
                 </ListItem>
-              )}
-              {/* Realtime/current item */}
-              {query ||
-              streamContentString ||
-              get(result, "message.content") ||
-              get(result, "content") ? (
-                <ItemPair
-                  key={`component-call-realtime`}
-                  {...{
-                    index: "realtime",
-                    me: query,
-                    gpt:
-                      streamContentString ||
-                      get(result, "message.content") ||
-                      get(result, "content"),
-                    realtime: true,
-                    sending,
-                  }}
-                />
-              ) : (
-                <React.Fragment />
               )}
             </List>
           </CardContent>
@@ -953,6 +966,89 @@ const Gpt = () => {
    * @component
    */
   const Sidebar = () => {
+    const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+    const [renameDialogOpen, setRenameDialogOpen] = useState(false);
+    const [renamingItemIndex, setRenamingItemIndex] = useState<number | null>(
+      null,
+    );
+    const [newName, setNewName] = useState("");
+    const renameFieldRef = useRef<HTMLInputElement | null>(null);
+
+    const handleMenuOpen = (
+      event: React.MouseEvent<HTMLElement>,
+      index: number,
+    ) => {
+      event.stopPropagation();
+      setAnchorEl(event.currentTarget);
+      setRenamingItemIndex(index); // index of the item being activated
+    };
+
+    const handleMenuClose = (
+      event?: React.SyntheticEvent<HTMLElement, Event> | undefined,
+      reason?: string,
+    ) => {
+      event && event.stopPropagation();
+      if (reason && reason !== "backdropClick") {
+        return;
+      }
+      setAnchorEl(null);
+    };
+
+    const handleRenameClick = (event?: React.MouseEvent<HTMLElement>) => {
+      event && event.stopPropagation();
+      setRenameDialogOpen(true);
+      setNewName(history[renamingItemIndex!]?.name || "");
+      handleMenuClose();
+    };
+
+    /**
+     * Delete a chat session
+     */
+    const handleDeleteClick = (event?: React.MouseEvent<HTMLElement>) => {
+      event && event.stopPropagation();
+      if (renamingItemIndex !== null) {
+        const updatedHistory = history.filter(
+          (_, i) => i !== renamingItemIndex,
+        );
+        setHistory(updatedHistory);
+        saveHistory(updatedHistory);
+
+        if (activeHistoryIndex === renamingItemIndex) {
+          // Set new active history or default based on remaining history items.
+          setActiveHistoryIndex(
+            updatedHistory.length > 0 ? updatedHistory.length - 1 : 0,
+          );
+        }
+        handleMenuClose();
+      }
+    };
+
+    const handleRenameSave = () => {
+      if (renamingItemIndex !== null) {
+        const updatedHistory = [...history];
+        updatedHistory[renamingItemIndex] = {
+          ...updatedHistory[renamingItemIndex],
+          name: newName,
+        };
+        setHistory(updatedHistory);
+        saveHistory(updatedHistory);
+      }
+      setRenameDialogOpen(false);
+      setNewName("");
+    };
+
+    const handleRenameChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+      setNewName(event.target.value);
+    };
+
+    const handleNewChat = () => {
+      createNewHistoryItem();
+    };
+
+    const handleListItemClick = (index: number) => {
+      setActiveHistoryIndex(index);
+    };
+
     return (
       <Drawer
         variant="permanent"
@@ -967,6 +1063,22 @@ const Gpt = () => {
           },
         }}
       >
+        {/* New Chat button */}
+        <Tooltip title="New Chat">
+          <IconButton
+            onClick={handleNewChat}
+            sx={{
+              position: "absolute",
+              // Align against dark mode switcher
+              top: sidebarOpen ? 1 : 50,
+              right: sidebarOpen ? 1 : "auto",
+              left: sidebarOpen ? "auto" : "2px",
+            }}
+          >
+            <Add />
+          </IconButton>
+        </Tooltip>
+
         {/* Sidebar Toggle Button */}
         <Box
           sx={{
@@ -980,19 +1092,167 @@ const Gpt = () => {
           }}
         >
           <Tooltip title="Open Sidebar">
-            <IconButton onClick={() => setSidebarOpen(!sidebarOpen)}>
+            <IconButton onClick={handleToggleSidebar}>
               {sidebarOpen ? <ChevronLeft /> : <ChevronRight />}
             </IconButton>
           </Tooltip>
         </Box>
 
         {/* Sidebar Content */}
-        {sidebarOpen && (
-          <Box sx={{ padding: "45px 10px 10px 10px" }}>
-            Hi, I'm a sidebar. In the future, I will contain a history of user
-            sessions.
+        {sidebarOpen ? (
+          <Box
+            sx={{
+              overflowY: "auto", // Enable vertical scrolling within this box
+              overflowX: "hidden",
+              flexGrow: 1,
+              height: "calc(100vh - (50px + 90px))", //subtract height of New Chat/Toggle, and Bottom area from viewport height
+              padding: "10px",
+              marginTop: 4,
+            }}
+          >
+            <List>
+              {history.map((item, index) => (
+                <ListItem
+                  dense
+                  disableGutters
+                  disablePadding
+                  key={index}
+                  secondaryAction={
+                    <IconButton
+                      edge="end"
+                      aria-label="more"
+                      aria-controls={`menu-${index}`}
+                      aria-haspopup="true"
+                      onClick={(e) => handleMenuOpen(e, index)}
+                    >
+                      <MoreVert />
+                    </IconButton>
+                  }
+                  sx={{ mb: 0.5 }}
+                >
+                  <ListItemButton
+                    dense
+                    disableGutters
+                    divider
+                    selected={index === activeHistoryIndex}
+                    onClick={() => handleListItemClick(index)}
+                    sx={{
+                      paddingLeft: 1,
+                      paddingRight: "25px !important",
+                      borderRadius: 2,
+                    }}
+                  >
+                    <Tooltip
+                      placement="right"
+                      arrow
+                      title={
+                        <React.Fragment>
+                          {item.name}
+                          <br />
+                          Created: {new Date(item.created_dt).toLocaleString()}
+                          <br />
+                          Updated: {new Date(item.updated_dt).toLocaleString()}
+                          <br />
+                          Chats: {item.chat.length}
+                        </React.Fragment>
+                      }
+                      slotProps={{
+                        popper: {
+                          modifiers: [
+                            {
+                              name: "offset",
+                              options: {
+                                offset: [0, 20],
+                              },
+                            },
+                          ],
+                        },
+                      }}
+                    >
+                      <ListItemText
+                        primary={item.name}
+                        primaryTypographyProps={{
+                          variant: "caption",
+                          sx: {
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          },
+                        }}
+                      />
+                    </Tooltip>
+                    <Menu
+                      id={`menu-${index}`}
+                      anchorEl={anchorEl}
+                      keepMounted
+                      open={Boolean(anchorEl) && renamingItemIndex === index}
+                      //onClose={handleMenuClose}
+                      onClose={
+                        handleMenuClose as (
+                          event: {},
+                          reason: "backdropClick" | "escapeKeyDown",
+                        ) => void
+                      }
+                    >
+                      <MenuItem onClick={handleRenameClick}>Rename</MenuItem>
+                      <Divider />
+                      <MenuItem onClick={handleDeleteClick}>Delete</MenuItem>
+                    </Menu>
+                  </ListItemButton>
+                </ListItem>
+              ))}
+            </List>
           </Box>
+        ) : (
+          <React.Fragment />
         )}
+        {/* Bottom static area */}
+        <Box
+          sx={{
+            height: "90px",
+            borderTop: "1px solid rgba(0, 0, 0, 0.12)",
+            padding: "0 10px 0 5px",
+          }}
+        >
+          {/* Add future features/content here */}
+          {sidebarOpen ? (
+            <div>&nbsp;</div> //future features
+          ) : (
+            <React.Fragment />
+          )}
+        </Box>
+
+        {/* Rename Dialog */}
+        <Dialog
+          fullWidth
+          maxWidth="sm"
+          open={renameDialogOpen}
+          onClose={() => setRenameDialogOpen(false)}
+        >
+          <DialogTitle>Rename Chat</DialogTitle>
+          <DialogContent>
+            <TextField
+              autoFocus
+              margin="dense"
+              id="name"
+              label="New Name"
+              type="text"
+              fullWidth
+              value={newName}
+              onChange={handleRenameChange}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  handleRenameSave();
+                }
+              }}
+              inputRef={renameFieldRef}
+            />
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setRenameDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handleRenameSave}>Save</Button>
+          </DialogActions>
+        </Dialog>
       </Drawer>
     );
   };

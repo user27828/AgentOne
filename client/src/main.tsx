@@ -3,7 +3,7 @@
  */
 import { useMemo, useState, useEffect, StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { createBrowserRouter, RouterProvider } from "react-router-dom";
+import { createBrowserRouter, RouterProvider } from "react-router";
 import { CookiesProvider } from "react-cookie";
 import {
   CssBaseline,
@@ -16,27 +16,16 @@ import "./index.css";
 import Root from "./pages/root.tsx";
 import Gpt from "./pages/gpt.tsx";
 
-const router = createBrowserRouter(
-  [
-    {
-      path: "/",
-      element: <Root />,
-    },
-    {
-      path: "/gpt",
-      element: <Gpt />,
-    },
-  ],
+const router = createBrowserRouter([
   {
-    future: {
-      v7_fetcherPersist: true,
-      v7_relativeSplatPath: true,
-      v7_normalizeFormMethod: true,
-      v7_partialHydration: true,
-      v7_skipActionErrorRevalidation: true,
-    },
+    path: "/",
+    element: <Root />,
   },
-);
+  {
+    path: "/gpt",
+    element: <Gpt />,
+  },
+]);
 
 /**
  * Main component with MUI light/dark mode toggle
@@ -109,12 +98,7 @@ const App = () => {
       >
         {darkMode ? <Brightness5 /> : <Brightness2 />}
       </IconButton>
-      <RouterProvider
-        future={{
-          v7_startTransition: true,
-        }}
-        router={router}
-      />
+      <RouterProvider router={router} />
     </ThemeProvider>
   );
 };

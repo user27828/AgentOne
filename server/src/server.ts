@@ -53,10 +53,20 @@ app.get("/list-models", async (req, res) => {
  * @param {string} body.model - Selected model on the backend
  * @param {number} body.temperature - LLM temperature (default .7)
  * @param {boolean} body.stream - Stream response?
+ * @param {string} body.sessionUid - Session UID to return to user
+ * @param {string} body.chatUid - Chat UID to return to user
  * @param {string} body.system - System message (overrides Modelfile, if exists)
  */
 app.post("/chat", async (req, res) => {
-  const { query, model, temperature, stream, system = null } = req.body;
+  const {
+    query,
+    model,
+    temperature,
+    stream,
+    sessionUid = "",
+    chatUid = "",
+    system = null,
+  } = req.body;
   console.debug({ userQuery: query, model, temperature, stream, system });
   try {
     const response = await fetch(`${process.env.OLLAMA_API_URL}/api/chat`, {
@@ -81,7 +91,11 @@ app.post("/chat", async (req, res) => {
       const reader = response.body?.getReader();
       if (reader) {
         const decoder = new TextDecoder();
-        res.writeHead(200, { "Content-Type": "text/plain" });
+        res.writeHead(200, {
+          "Content-Type": "text/plain",
+          "X-Session-Uid": sessionUid,
+          "X-Chat-Uid": chatUid,
+        });
         const streamResponse = async () => {
           while (true) {
             const { done, value } = await reader.read();
@@ -95,10 +109,14 @@ app.post("/chat", async (req, res) => {
       }
     } else {
       const result = await response.json();
-      res.json(result);
+      res.json({ ...result, sessionUid, chatUid });
     }
   } catch (error) {
     console.error("Error communicating with Ollama: ", error);
+    res.set({
+      "X-Session-Uid": sessionUid,
+      "X-Chat-Uid": chatUid,
+    });
     res.status(500).json({ error: "Failed to get response from Ollama" });
   }
 });
