@@ -2,7 +2,7 @@
  * GPT chat page
  */
 import React, { useState, useCallback, useEffect, useRef } from "react";
-import { get, has, isString, last, size, trim } from "lodash";
+import { get, has, isString, last, range, size, trim } from "lodash";
 import {
   Box,
   Button,
@@ -172,6 +172,7 @@ const useCopyHandler = (
 };
 
 interface QueryBoxProps {
+  query: string;
   queryFieldRef?: any;
   handleQuery: (event: React.ChangeEvent<HTMLInputElement> | string) => void;
   handleSend: (event: React.FormEvent) => void;
@@ -196,6 +197,7 @@ interface QueryBoxProps {
  * @returns {JSX.Element}
  */
 const QueryBox: React.FC<QueryBoxProps> = ({
+  query,
   queryFieldRef,
   handleQuery,
   handleSend,
@@ -219,16 +221,6 @@ const QueryBox: React.FC<QueryBoxProps> = ({
   const handleLocalQuery = (event: React.ChangeEvent<HTMLInputElement>) =>
     setLocalQuery(event.target.value);
 
-  const handleLocalSend = (event: React.FormEvent) => {
-    handleQuery(localQuery);
-    handleSend(event);
-    setLocalQuery("");
-    setShowSettings(false); // Close settings panel on send
-    if (queryFieldRef.current) {
-      queryFieldRef.current.value = "";
-    }
-  };
-
   /**
    * Handle the "Enter" button as submit
    * @param {object} event
@@ -240,6 +232,16 @@ const QueryBox: React.FC<QueryBoxProps> = ({
       handleLocalSend(event);
     }
   };
+
+  const handleLocalSend = (event: React.FormEvent) => {
+    event.preventDefault();
+    handleQuery(localQuery);
+    handleSend(event);
+    setLocalQuery("");
+    setShowSettings(false); // Close settings panel on send
+  };
+
+  useEffect(() => setLocalQuery(query), [query]);
 
   return (
     <Card>
@@ -257,7 +259,7 @@ const QueryBox: React.FC<QueryBoxProps> = ({
                 <TextField
                   multiline
                   maxRows={5}
-                  //value={localQuery}
+                  value={localQuery}
                   onChange={handleLocalQuery}
                   onKeyDown={handleKeyPress}
                   placeholder={
@@ -407,7 +409,6 @@ const QueryBox: React.FC<QueryBoxProps> = ({
  */
 const Gpt = () => {
   const [query, setQuery] = useState<string>("");
-  const queryFieldRef = useRef<HTMLInputElement | null>(null);
   const [sending, setSending] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
   const [result, setResult] = useState<{ [key: string]: any }>({});
@@ -426,53 +427,67 @@ const Gpt = () => {
   const [cookies, setCookie] = useCookies(["settings"]);
   const [sidebarOpen, setSidebarOpen] = React.useState(false);
   const [showDebug, setShowDebug] = useState<boolean>(false);
-  const [uuids, setUuids] = useState<{ session: string; chat: string }>({
-    session: "",
-    chat: "",
-  });
+  const [uuids, setUuids] = useState<{ [sessionUid: string]: string[] }>({}); // Hierarchical UUIDs
+  const [scrollToBottomVisible, setScrollToBottomVisible] = useState(false);
+  const [scrollToTopVisible, setScrollToTopVisible] = useState(false);
+
+  const queryFieldRef = useRef<HTMLInputElement | null>(null);
   const controllerRef = useRef<AbortController | null>(null);
   const streamingEndRef = useRef<null | HTMLDivElement>(null);
+  const chatListRef = useRef<HTMLUListElement>(null);
+
   const { handleCopy, isShowingSuccess } = useCopyHandler();
 
   const createNewHistoryItem = () => {
+    const sessionUid = slugid.nice(); // Generate new session ID
+    const chatUid = slugid.nice(); // Generate initial chat ID for the session
+
     const newHistoryItem = {
       name: "Chat on " + new Date().toLocaleString(),
       model: selectedModel,
       temperature: temperature,
       created_dt: new Date().toISOString(),
       updated_dt: new Date().toISOString(),
-      sessionUid: slugid.nice(),
+      sessionUid: sessionUid,
       chat: [],
     };
 
     setHistory((prevHistory) => [...prevHistory, newHistoryItem]);
     setActiveHistoryIndex(history.length); // Set new item as active
     saveHistory([...history, newHistoryItem]);
+    setUuids((prevUuids) => ({
+      ...prevUuids,
+      [sessionUid]: [chatUid],
+    })); // Update UI
   };
 
   /**
    * Get the initial list of available LLMs from the Ollama service
    */
   useEffect(() => {
-    const fetchModels = async () => {
-      const availableModels = await apiListModels();
+    let availableModels: string[] = [];
+    const _fetchModels = async () => {
+      availableModels = await apiListModels();
       setModels(availableModels);
       setLoading(false);
     };
-    fetchModels();
+    _fetchModels();
 
     // Load settings from cookies
     const savedSettings = cookies.settings || {};
     setTemperature(savedSettings.temperature || 0.7);
     setStream(savedSettings.stream || stream);
     setSidebarOpen(savedSettings.sidebarOpen || sidebarOpen);
-    setSelectedModel(savedSettings.model || selectedModel || models[0]);
+    setSelectedModel(
+      savedSettings.model || selectedModel || availableModels[0],
+    );
 
     // Initialize history if it's empty, creating the first history item
     if (!history.length) {
       createNewHistoryItem();
     } else {
-      setActiveHistoryIndex(history.length - 1);
+      const _activeHistoryIndex = history.length - 1;
+      setActiveHistoryIndex(_activeHistoryIndex);
     }
   }, []);
 
@@ -491,7 +506,7 @@ const Gpt = () => {
       event?.preventDefault();
       setSending(true);
     },
-    [query, selectedModel],
+    [query, selectedModel, temperature, stream],
   );
 
   /**
@@ -501,19 +516,19 @@ const Gpt = () => {
   const moveQueryFocus = (value: string) => {
     setQuery(value);
     if (queryFieldRef.current) {
-      queryFieldRef.current.value = value;
+      //queryFieldRef.current.value = value;
       queryFieldRef.current.focus();
     }
   };
 
   /**
    * Send a query to the LLM server for evaluation
+   * Calls to this function will create and assign a new chatUid
    * @param {string} query - User query
    * @param {string} model - Selected LLM model
    * @param {number} temperature - LLM temperature
    * @param {boolean} stream - Stream response?
    * @param {string} sessionUid - UUID for the specific session
-   * @param {string} chatUid - UUID for the specific chat
    * @param {object} controller - Fetch controller for aborting
    * @returns {JSON} - JSON object or stream of objects
    */
@@ -523,9 +538,17 @@ const Gpt = () => {
     temperature: number,
     stream: boolean,
     sessionUid: string,
-    chatUid: string,
     controller: AbortController,
   ) => {
+    const currentSessionUid = sessionUid
+      ? sessionUid
+      : history[activeHistoryIndex]?.sessionUid;
+    const newChatUid = slugid.nice();
+    setUuids((prev) => ({
+      ...prev,
+      [currentSessionUid]: [...(prev[currentSessionUid] || []), newChatUid],
+    }));
+
     const response = await fetch(`${serverUrl}/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -534,45 +557,53 @@ const Gpt = () => {
         model,
         temperature,
         stream,
-        sessionUid,
-        chatUid,
+        sessionUid: currentSessionUid,
       }),
       signal: controller.signal,
     });
     if (response.ok) {
-      const sessionUid = response.headers.get("X-Session-Uid") || "";
-      const chatUid = response.headers.get("X-Chat-Uid") || "";
-      setUuids({ session: sessionUid, chat: chatUid });
+      // might use these to match the request
+      //const _sessionUid = response.headers.get("X-Session-Uid") || "";
+      //const _chatUid = response.headers.get("X-Chat-Uid") || "";
       setStreamContent([]);
       setStreamContentString("");
       setResult({});
 
       if (stream) {
-        let _result = "";
         const reader = response.body?.getReader();
         const decoder = new TextDecoder("utf-8");
-        let data = {};
-        while (true) {
-          const { done, value } = (await reader?.read()) || {};
-          if (done) break;
-          _result += decoder.decode(value, { stream: true });
-          // Process each line of data
-          const lines: string[] = _result ? _result.split("\n") : [];
-          for (let i = 0; i < lines.length - 1; i++) {
-            const line = lines[i];
+        let finalContent = ""; // Full response string
+
+        const processChunk = (chunk: string) => {
+          const lines = chunk.split("\n");
+
+          for (const line of lines) {
             if (line.trim()) {
-              data = JSON.parse(line);
-              setStreamContent((prev: any) => [...prev, data]);
-              setStreamContentString(
-                (prev: string) => prev + get(data, "message.content"),
-              );
+              try {
+                const data = JSON.parse(line);
+                setStreamContent((prev: any) => [...prev, data]);
+                finalContent += data.message.content;
+                setStreamContentString((prev) => prev + data.message.content); // Real-time string for display
+              } catch (error) {
+                console.error("Error parsing JSON:", error, line);
+              }
             }
           }
-          // Keep the last partial line in the buffer
-          _result = lines[lines.length - 1];
-        }
-        setResult({ ...data, content: _result });
-        return _result;
+        };
+
+        const readStream = async (): Promise<void> => {
+          const { done, value } = (await reader?.read()) || {};
+          if (done) {
+            return;
+          }
+          const chunk = decoder.decode(value, { stream: true });
+          processChunk(chunk);
+          await readStream(); // Recurse
+        };
+
+        await readStream();
+        setResult(streamContent);
+        return finalContent; // Return the resulting string
       } else {
         const _result = await response.json();
         setResult(_result || {});
@@ -597,14 +628,13 @@ const Gpt = () => {
         temperature,
         stream,
         history[activeHistoryIndex]?.sessionUid,
-        "",
         controllerRef.current,
       ).then(() => {
         setSending(false);
         setPendingHistory(true);
       });
     }
-  }, [query, sending, activeHistoryIndex]);
+  }, [sending, query, selectedModel, temperature, stream, activeHistoryIndex]);
 
   /**
    * Save to history
@@ -643,7 +673,11 @@ const Gpt = () => {
         updated_dt: new Date().toISOString(),
         chat: [
           ...(currentHistoryItem.chat || []),
-          { query, chatUid: slugid.nice(), result: _result },
+          {
+            query,
+            chatUid: last(uuids[currentHistoryItem.sessionUid] || ""),
+            result: _result,
+          },
         ],
       };
 
@@ -659,6 +693,7 @@ const Gpt = () => {
     streamContent,
     streamContentString,
     pendingHistory,
+    uuids,
   ]);
 
   /**
@@ -751,133 +786,138 @@ const Gpt = () => {
    * @returns {JSX.Element}
    */
   const StreamingResultBox = () => {
-    const lastHistoryItem = last(history) || [];
-    const lastHistoryChat = last(lastHistoryItem?.chat) || {};
+    let _activeHistoryIndex = 0;
     if (!has(history, [activeHistoryIndex])) {
       // Active history item index might have been deleted
-      setActiveHistoryIndex(history.length - 1);
+      _activeHistoryIndex = history.length - 1;
+      setActiveHistoryIndex(_activeHistoryIndex);
+    } else {
+      _activeHistoryIndex = activeHistoryIndex;
     }
+    const lastHistoryItem = history[_activeHistoryIndex] || [];
+    const lastHistoryChat = last(lastHistoryItem?.chat) || {};
+    const isDuplicate =
+      query &&
+      lastHistoryChat &&
+      query === get(lastHistoryChat, "query") &&
+      last(uuids[lastHistoryItem.sessionUid]) ===
+        get(lastHistoryChat, "chatUid");
+
     // Combine history and current query for display, filtering out the duplicate last message if needed
     const chatToDisplay = [
       ...(history[activeHistoryIndex]?.chat || []),
-      sending && query && query !== get(lastHistoryChat, "query")
-        ? { query, result: stream ? { content: streamContentString } : result }
+      sending && !isDuplicate
+        ? {
+            query,
+            result: stream ? { content: streamContentString } : result,
+            chatUid: last(uuids[history[activeHistoryIndex]?.sessionUid.chat]),
+          }
         : null, // Last duplicate filtered out below
     ].filter(Boolean);
+
+    const scrollToBottom = () => {
+      chatListRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "end",
+        inline: "nearest",
+      });
+    };
+
+    const scrollToTop = () => {
+      chatListRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    };
+
+    useEffect(() => {
+      const listElement = chatListRef.current;
+
+      const handleScroll = () => {
+        // [1] Move the function definition into useEffect
+        if (listElement) {
+          // Check listElement after render
+          const { scrollTop, scrollHeight, clientHeight } = listElement;
+          const threshold = 100; // Adjust threshold if necessary
+
+          setScrollToBottomVisible(
+            scrollTop + clientHeight < scrollHeight - threshold,
+          );
+          setScrollToTopVisible(scrollTop > threshold);
+        }
+      };
+
+      if (listElement) {
+        // Use a timeout to ensure the List's content has rendered and scrollHeight is accurate
+        setTimeout(() => {
+          // [2] Wrap in setTimeout
+          handleScroll(); // Check initial visibility AFTER render and layout
+        }, 1000);
+
+        listElement.addEventListener("scroll", handleScroll);
+
+        return () => listElement.removeEventListener("scroll", handleScroll);
+      }
+    }, [chatListRef?.current, chatToDisplay.length]);
 
     return (
       <>
         <Card>
           <CardContent>
-            <List dense={true}>
+            <List
+              ref={chatListRef}
+              dense={true}
+              sx={{
+                position: "relative",
+              }}
+            >
               {chatToDisplay.length > 0 &&
               size(chatToDisplay.filter((v) => size(v.query) > 0)) > 0 ? (
-                chatToDisplay.map((chat, index) => {
-                  const me = chat.query;
-                  return (
-                    <React.Fragment key={`chat-item-${index}`}>
-                      <ListItem sx={sxChatMeItem}>
-                        <ListItemText
-                          primaryTypographyProps={{ component: "div" }}
-                          secondaryTypographyProps={{ component: "div" }}
-                          primary={chat.query}
-                          secondary={
-                            <Stack
-                              direction="row"
-                              spacing={1}
-                              justifyContent="right"
-                              alignItems="center"
-                            >
-                              <small>{"(Me)"}&nbsp;</small>
-                              {index <
-                                size(history[activeHistoryIndex].chat) && (
-                                <>
-                                  <IconButton
-                                    size="small"
-                                    onClick={() =>
-                                      handleDeleteHistoryMessage(index)
-                                    }
-                                  >
-                                    <Tooltip title="Delete this item pair">
-                                      <DeleteIcon color="warning" />
-                                    </Tooltip>
-                                  </IconButton>
-                                  <IconButton
-                                    size="small"
-                                    onClick={() =>
-                                      setShowHistoryDebug(get(history, [index]))
-                                    }
-                                  >
-                                    <Tooltip title="Show debug data for this query/response pair">
-                                      <InfoIcon color="primary" />
-                                    </Tooltip>
-                                  </IconButton>
-                                  <IconButton
-                                    size="small"
-                                    onClick={() =>
-                                      handleCopy(me, `query-${index}`)
-                                    }
-                                  >
-                                    <Tooltip title="Copy this query text">
-                                      {isShowingSuccess(`query-${index}`) ? (
-                                        <ThumbUpIcon
-                                          sx={{ color: "green", opacity: 0.5 }}
-                                        />
-                                      ) : (
-                                        <CopyIcon color="primary" />
-                                      )}
-                                    </Tooltip>
-                                  </IconButton>
-                                  <IconButton
-                                    size="small"
-                                    onClick={() =>
-                                      size(me) && moveQueryFocus(me)
-                                    }
-                                  >
-                                    <Tooltip title="Copy text to query editor">
-                                      <MoveDown color="primary" />
-                                    </Tooltip>
-                                  </IconButton>
-                                </>
-                              )}
-                            </Stack>
-                          }
-                          sx={sxChatMeItemText}
-                        />
-                      </ListItem>
-                      {chat.result && ( // LLM response
-                        <ListItem sx={sxGptItem}>
-                          <ListItemText
-                            primaryTypographyProps={{ component: "div" }}
-                            secondaryTypographyProps={{ component: "div" }}
-                            primary={
-                              <ReactMarkdown
-                                className="results-box"
-                                remarkPlugins={[remarkGfm]}
-                              >
-                                {get(
-                                  chat,
-                                  "result.content",
-                                  get(chat, "result.message.content"),
-                                )}
-                              </ReactMarkdown>
-                            }
-                            secondary={
-                              <Stack
-                                direction="row"
-                                spacing={1}
-                                justifyContent="left"
-                                alignItems="center"
-                              >
-                                <small>{"(LLM)"}</small>
+                chatToDisplay.map((chat, index) => (
+                  <React.Fragment key={`chat-item-${index}`}>
+                    <ListItem sx={sxChatMeItem}>
+                      <ListItemText
+                        primaryTypographyProps={{ component: "div" }}
+                        secondaryTypographyProps={{ component: "div" }}
+                        primary={chat.query}
+                        secondary={
+                          <Stack
+                            direction="row"
+                            spacing={1}
+                            justifyContent="right"
+                            alignItems="center"
+                          >
+                            <small>{"(Me)"}&nbsp;</small>
+                            {index < size(history[activeHistoryIndex].chat) && (
+                              <>
                                 <IconButton
                                   size="small"
                                   onClick={() =>
-                                    handleCopy(me, `response-${index}`)
+                                    handleDeleteHistoryMessage(index)
+                                  }
+                                >
+                                  <Tooltip title="Delete this item pair">
+                                    <DeleteIcon color="warning" />
+                                  </Tooltip>
+                                </IconButton>
+                                <IconButton
+                                  size="small"
+                                  onClick={() =>
+                                    setShowHistoryDebug(get(history, [index]))
+                                  }
+                                >
+                                  <Tooltip title="Show debug data for this query/response pair">
+                                    <InfoIcon color="primary" />
+                                  </Tooltip>
+                                </IconButton>
+                                <IconButton
+                                  size="small"
+                                  onClick={() =>
+                                    handleCopy(chat.query, `query-${index}`)
                                   }
                                 >
                                   <Tooltip title="Copy this query text">
-                                    {isShowingSuccess(`response-${index}`) ? (
+                                    {isShowingSuccess(`query-${index}`) ? (
                                       <ThumbUpIcon
                                         sx={{ color: "green", opacity: 0.5 }}
                                       />
@@ -886,15 +926,73 @@ const Gpt = () => {
                                     )}
                                   </Tooltip>
                                 </IconButton>
-                              </Stack>
-                            }
-                            sx={sxGptItemText}
-                          />
-                        </ListItem>
-                      )}
-                    </React.Fragment>
-                  );
-                })
+                                <IconButton
+                                  size="small"
+                                  onClick={() =>
+                                    size(chat.query) &&
+                                    moveQueryFocus(chat.query)
+                                  }
+                                >
+                                  <Tooltip title="Copy text to query editor">
+                                    <MoveDown color="primary" />
+                                  </Tooltip>
+                                </IconButton>
+                              </>
+                            )}
+                          </Stack>
+                        }
+                        sx={sxChatMeItemText}
+                      />
+                    </ListItem>
+                    {chat.result && ( // LLM response
+                      <ListItem sx={sxGptItem}>
+                        <ListItemText
+                          primaryTypographyProps={{ component: "div" }}
+                          secondaryTypographyProps={{ component: "div" }}
+                          primary={
+                            <ReactMarkdown
+                              className="results-box"
+                              remarkPlugins={[remarkGfm]}
+                            >
+                              {get(
+                                chat,
+                                "result.content",
+                                get(chat, "result.message.content"),
+                              )}
+                            </ReactMarkdown>
+                          }
+                          secondary={
+                            <Stack
+                              direction="row"
+                              spacing={1}
+                              justifyContent="left"
+                              alignItems="center"
+                            >
+                              <small>{"(LLM)"}</small>
+                              <IconButton
+                                size="small"
+                                onClick={() =>
+                                  handleCopy(chat.query, `response-${index}`)
+                                }
+                              >
+                                <Tooltip title="Copy this query text">
+                                  {isShowingSuccess(`response-${index}`) ? (
+                                    <ThumbUpIcon
+                                      sx={{ color: "green", opacity: 0.5 }}
+                                    />
+                                  ) : (
+                                    <CopyIcon color="primary" />
+                                  )}
+                                </Tooltip>
+                              </IconButton>
+                            </Stack>
+                          }
+                          sx={sxGptItemText}
+                        />
+                      </ListItem>
+                    )}
+                  </React.Fragment>
+                ))
               ) : (
                 <ListItem key="_default">
                   <ListItemText>
@@ -902,6 +1000,43 @@ const Gpt = () => {
                   </ListItemText>
                 </ListItem>
               )}
+              {/* Scroll to bottom arrow - not completely functional - auto detection logic is wrong*/}
+              {
+                //scrollToBottomVisible && !sending && !loading &&
+                true && (
+                  <IconButton
+                    sx={{
+                      position: "absolute",
+                      top: 0,
+                      right: -15,
+                      opacity: 0.7,
+                      "&:hover": { opacity: 1 },
+                    }}
+                    onClick={scrollToBottom}
+                  >
+                    <ChevronRight style={{ transform: "rotate(90deg)" }} />{" "}
+                  </IconButton>
+                )
+              }
+
+              {/* Scroll to top arrow */}
+              {
+                //scrollToTopVisible && !sending && !loading && (
+                true && (
+                  <IconButton
+                    sx={{
+                      position: "absolute",
+                      bottom: 0,
+                      right: -15,
+                      opacity: 0.7,
+                      "&:hover": { opacity: 1 },
+                    }}
+                    onClick={scrollToTop}
+                  >
+                    <ChevronRight style={{ transform: "rotate(-90deg)" }} />{" "}
+                  </IconButton>
+                )
+              }
             </List>
           </CardContent>
         </Card>
@@ -1111,96 +1246,102 @@ const Gpt = () => {
             }}
           >
             <List>
-              {history.map((item, index) => (
-                <ListItem
-                  dense
-                  disableGutters
-                  disablePadding
-                  key={index}
-                  secondaryAction={
-                    <IconButton
-                      edge="end"
-                      aria-label="more"
-                      aria-controls={`menu-${index}`}
-                      aria-haspopup="true"
-                      onClick={(e) => handleMenuOpen(e, index)}
-                    >
-                      <MoreVert />
-                    </IconButton>
-                  }
-                  sx={{ mb: 0.5 }}
-                >
-                  <ListItemButton
+              {range(history.length - 1, -1, -1).map((index) => {
+                // Reverse order (range() is less expensive than slice().reverse())
+                const item = history[index];
+                return (
+                  <ListItem
                     dense
                     disableGutters
-                    divider
-                    selected={index === activeHistoryIndex}
-                    onClick={() => handleListItemClick(index)}
-                    sx={{
-                      paddingLeft: 1,
-                      paddingRight: "25px !important",
-                      borderRadius: 2,
-                    }}
+                    disablePadding
+                    key={index}
+                    secondaryAction={
+                      <IconButton
+                        edge="end"
+                        aria-label="more"
+                        aria-controls={`menu-${index}`}
+                        aria-haspopup="true"
+                        onClick={(e) => handleMenuOpen(e, index)}
+                      >
+                        <MoreVert />
+                      </IconButton>
+                    }
+                    sx={{ mb: 0.5 }}
                   >
-                    <Tooltip
-                      placement="right"
-                      arrow
-                      title={
-                        <React.Fragment>
-                          {item.name}
-                          <br />
-                          Created: {new Date(item.created_dt).toLocaleString()}
-                          <br />
-                          Updated: {new Date(item.updated_dt).toLocaleString()}
-                          <br />
-                          Chats: {item.chat.length}
-                        </React.Fragment>
-                      }
-                      slotProps={{
-                        popper: {
-                          modifiers: [
-                            {
-                              name: "offset",
-                              options: {
-                                offset: [0, 20],
-                              },
-                            },
-                          ],
-                        },
+                    <ListItemButton
+                      dense
+                      disableGutters
+                      divider
+                      selected={index === activeHistoryIndex}
+                      onClick={() => handleListItemClick(index)}
+                      sx={{
+                        paddingLeft: 1,
+                        paddingRight: "25px !important",
+                        borderRadius: 2,
                       }}
                     >
-                      <ListItemText
-                        primary={item.name}
-                        primaryTypographyProps={{
-                          variant: "caption",
-                          sx: {
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
+                      <Tooltip
+                        placement="right"
+                        arrow
+                        title={
+                          <React.Fragment>
+                            {item.name}
+                            <br />
+                            Created:{" "}
+                            {new Date(item.created_dt).toLocaleString()}
+                            <br />
+                            Updated:{" "}
+                            {new Date(item.updated_dt).toLocaleString()}
+                            <br />
+                            Chats: {item.chat.length}
+                          </React.Fragment>
+                        }
+                        slotProps={{
+                          popper: {
+                            modifiers: [
+                              {
+                                name: "offset",
+                                options: {
+                                  offset: [0, 20],
+                                },
+                              },
+                            ],
                           },
                         }}
-                      />
-                    </Tooltip>
-                    <Menu
-                      id={`menu-${index}`}
-                      anchorEl={anchorEl}
-                      keepMounted
-                      open={Boolean(anchorEl) && renamingItemIndex === index}
-                      //onClose={handleMenuClose}
-                      onClose={
-                        handleMenuClose as (
-                          event: {},
-                          reason: "backdropClick" | "escapeKeyDown",
-                        ) => void
-                      }
-                    >
-                      <MenuItem onClick={handleRenameClick}>Rename</MenuItem>
-                      <Divider />
-                      <MenuItem onClick={handleDeleteClick}>Delete</MenuItem>
-                    </Menu>
-                  </ListItemButton>
-                </ListItem>
-              ))}
+                      >
+                        <ListItemText
+                          primary={item.name}
+                          primaryTypographyProps={{
+                            variant: "caption",
+                            sx: {
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            },
+                          }}
+                        />
+                      </Tooltip>
+                      <Menu
+                        id={`menu-${index}`}
+                        anchorEl={anchorEl}
+                        keepMounted
+                        open={Boolean(anchorEl) && renamingItemIndex === index}
+                        //onClose={handleMenuClose}
+                        onClose={
+                          handleMenuClose as (
+                            event: {},
+                            reason: "backdropClick" | "escapeKeyDown",
+                          ) => void
+                        }
+                      >
+                        <MenuItem onClick={handleRenameClick}>Rename</MenuItem>
+                        <Divider />
+                        <MenuItem onClick={handleDeleteClick}>Delete</MenuItem>
+                      </Menu>
+                    </ListItemButton>
+                  </ListItem>
+                );
+              })}
             </List>
           </Box>
         ) : (
@@ -1306,6 +1447,7 @@ const Gpt = () => {
           }}
         >
           <QueryBox
+            query={query}
             queryFieldRef={queryFieldRef}
             handleQuery={handleQuery}
             handleSend={handleSend}
