@@ -4,19 +4,22 @@
   "main": "dist/server.js",
   "scripts": {
     "build": "tsc",
-    "start": "node dist/server.js",
-    "dev": "nodemon --watch .env --watch src src/server.ts"
-  },
-  "dependencies": {
-    "cors": "^2.8.5",
-    "express": "^4.21.1",
-    "nodemon": "^3.1.7"
+    "clean": "rm -fr dist/*",
+    "dev": "nodemon --watch .env --watch src src/server.ts",
+    "start": "node dist/server.js"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
+    "@types/fs-extra": "^11.0.4",
     "@types/node": "^22.9.3",
     "ts-node": "^10.9.2",
     "typescript": "^5.7.2"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.1",
+    "fs-extra": "^11.2.0",
+    "nodemon": "^3.1.7"
   }
 }

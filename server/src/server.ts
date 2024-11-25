@@ -5,14 +5,17 @@ import express from "express";
 import path from "path";
 import dotenv from "dotenv";
 import cors from "cors";
+import FineTune from "./routes/finetune";
 
 dotenv.config({ path: path.resolve(__dirname, "../../.env") });
+
+const PORT = process.env.VITE_API_PORT || 3001; // Express server port
 
 const app = express();
 app.use(cors());
 app.use(express.json({ inflate: true, type: "application/json" }));
 
-const PORT = process.env.VITE_API_PORT || 3001; // Express server port
+app.use("/finetune", FineTune);
 
 /**
  * Default

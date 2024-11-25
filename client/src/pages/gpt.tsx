@@ -428,7 +428,9 @@ const Gpt = () => {
   const [sidebarOpen, setSidebarOpen] = React.useState(false);
   const [showDebug, setShowDebug] = useState<boolean>(false);
   const [uuids, setUuids] = useState<{ [sessionUid: string]: string[] }>({}); // Hierarchical UUIDs
+  // @ts-expect-error - to be used soon
   const [scrollToBottomVisible, setScrollToBottomVisible] = useState(false);
+  // @ts-expect-error - to be used soon
   const [scrollToTopVisible, setScrollToTopVisible] = useState(false);
 
   const queryFieldRef = useRef<HTMLInputElement | null>(null);

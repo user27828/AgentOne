@@ -1,6 +1,9 @@
 {
   "name": "agentone",
-  "author": "M.S.",
+  "author": {
+    "name": "Marc Stephenson",
+    "url": "https://github.com/user27828"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/user27828/AgentOne"
@@ -15,18 +18,21 @@
   "type": "module",
   "packageManager": "yarn@4.5.1+sha512.341db9396b6e289fecc30cd7ab3af65060e05ebff4b3b47547b278b9e67b08f485ecd8c79006b405446262142c7a38154445ef7f17c1d5d1de7d90bf9ce7054d",
   "scripts": {
+    "build": "yarn workspace @agentone/server build && yarn workspace @agentone/client build",
+    "clean": "yarn workspace @agentone/server clean && yarn workspace @agentone/client clean",
     "dev": "concurrently -r --restart-tries 3 --handle-input \"yarn workspace @agentone/server dev\" \"yarn workspace @agentone/client dev\"",
     "dev:client": "yarn workspace @agentone/client dev",
     "dev:server": "yarn workspace @agentone/server dev",
+    "lint": "eslint .",
+    "preview": "yarn start",
     "start": "concurrently -r --restart-tries 3 --handle-input \"yarn workspace @agentone/server start\" \"yarn workspace @agentone/client preview\"",
     "start:client": "yarn workspace @agentone/client preview",
-    "start:server": "yarn workspace @agentone/server start",
-    "preview": "yarn start",
-    "build": "yarn workspace @agentone/server build && yarn workspace @agentone/client build",
-    "lint": "eslint ."
+    "start:server": "yarn workspace @agentone/server start"
   },
   "devDependencies": {
     "@eslint/js": "^9.15.0",
+    "@types/lodash": "^4.17.13",
+    "@types/mime-types": "^2.1.4",
     "concurrently": "^9.1.0",
     "eslint": "^9.15.0",
     "eslint-plugin-react-hooks": "^5.0.0",
@@ -38,9 +44,10 @@
     "typescript-eslint": "^8.15.0"
   },
   "dependencies": {
-    "@types/lodash": "^4.17.13",
     "dotenv": "^16.4.5",
     "lodash": "^4.17.21",
+    "mime": "^4.0.4",
+    "mime-types": "^2.1.35",
     "slugid": "^5.0.1"
   }
 }
