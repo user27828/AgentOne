@@ -1,0 +1,4 @@
+fastapi
+uvicorn[standard]  # For background tasks support
+transformers[torch] # Includes necessary dependencies for most transformer models, including PyTorch
+datasets

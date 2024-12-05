@@ -20,31 +20,34 @@
   "scripts": {
     "build": "yarn workspace @agentone/server build && yarn workspace @agentone/client build",
     "clean": "yarn workspace @agentone/server clean && yarn workspace @agentone/client clean",
-    "dev": "concurrently -r --restart-tries 3 --handle-input \"yarn workspace @agentone/server dev\" \"yarn workspace @agentone/client dev\"",
+    "dev": "concurrently -r --restart-tries 3 --handle-input \"yarn workspace @agentone/server dev\" \"yarn workspace @agentone/client dev\" \"yarn train-server\"",
     "dev:client": "yarn workspace @agentone/client dev",
     "dev:server": "yarn workspace @agentone/server dev",
     "lint": "eslint .",
     "preview": "yarn start",
     "start": "concurrently -r --restart-tries 3 --handle-input \"yarn workspace @agentone/server start\" \"yarn workspace @agentone/client preview\"",
     "start:client": "yarn workspace @agentone/client preview",
-    "start:server": "yarn workspace @agentone/server start"
+    "start:server": "yarn workspace @agentone/server start",
+    "train-server": "env -i bash -c '. train_model/.venv/bin/activate && uvicorn train_model.train_model:app --reload --host 0.0.0.0 --port 8010'"
   },
   "devDependencies": {
-    "@eslint/js": "^9.15.0",
+    "@eslint/js": "^9.16.0",
     "@types/lodash": "^4.17.13",
     "@types/mime-types": "^2.1.4",
     "concurrently": "^9.1.0",
-    "eslint": "^9.15.0",
+    "eslint": "^9.16.0",
     "eslint-plugin-react-hooks": "^5.0.0",
-    "eslint-plugin-react-refresh": "^0.4.14",
-    "globals": "^15.12.0",
+    "eslint-plugin-react-refresh": "^0.4.16",
+    "globals": "^15.13.0",
     "nodemon": "^3.1.7",
-    "prettier": "^3.3.3",
+    "prettier": "^3.4.1",
     "typescript": "~5.7.2",
-    "typescript-eslint": "^8.15.0"
+    "typescript-eslint": "^8.17.0"
   },
   "dependencies": {
-    "dotenv": "^16.4.5",
+    "axios": "^1.7.8",
+    "dayjs": "^1.11.13",
+    "dotenv": "^16.4.7",
     "lodash": "^4.17.21",
     "mime": "^4.0.4",
     "mime-types": "^2.1.35",
