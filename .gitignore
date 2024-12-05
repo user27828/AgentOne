@@ -22,11 +22,18 @@
 /coverage
 /uploads/
 
+# Python
+.venv/
+__pycache__/
+
 # Misc
 .DS_Store
 .Spotlight-V100
 .env
 .env.*
 *.log*
+tmp/
+temp/
 
 /models/*
+.projects/*

@@ -56,7 +56,9 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import CodeFormat from "../components/CodeFormat";
 import slugid from "slugid";
+import axios from "axios";
 import "../App.css";
+//import ProjectFileManager from "../components/ProjectFileManager";
 
 const serverUrl = `${import.meta.env.VITE_API_HOST}:${import.meta.env.VITE_API_PORT}`;
 
@@ -110,15 +112,13 @@ const saveHistory = (history: any) => {
  * @returns {array} - List of models and their properties
  */
 const apiListModels = async () => {
-  const response = await fetch(`${serverUrl}/list-models`, {
-    method: "GET",
-    headers: { "Content-Type": "application/json" },
-  });
-  if (response.status && response.status === 200) {
-    const models = await response.json();
-    return models;
+  try {
+    const response = await axios.get(`${serverUrl}/list-models`);
+    return response.data;
+  } catch (error) {
+    console.error("Error listing models:", error);
+    return [];
   }
-  return [];
 };
 
 /**
@@ -192,9 +192,9 @@ interface QueryBoxProps {
 
 /**
  * Query box and settings component
- * @component
  * @param param0
  * @returns {JSX.Element}
+ * @component
  */
 const QueryBox: React.FC<QueryBoxProps> = ({
   query,
@@ -359,6 +359,7 @@ const QueryBox: React.FC<QueryBoxProps> = ({
                       )}
                     </Select>
                   </FormControl>
+                  {/* SYSTEM MESSAGE(s) */}
                   <FormControl
                     fullWidth
                     disabled={loading || sending || !size(models)}
@@ -542,28 +543,29 @@ const Gpt = () => {
     sessionUid: string,
     controller: AbortController,
   ) => {
-    const currentSessionUid = sessionUid
-      ? sessionUid
-      : history[activeHistoryIndex]?.sessionUid;
-    const newChatUid = slugid.nice();
-    setUuids((prev) => ({
-      ...prev,
-      [currentSessionUid]: [...(prev[currentSessionUid] || []), newChatUid],
-    }));
+    try {
+      const currentSessionUid = sessionUid
+        ? sessionUid
+        : history[activeHistoryIndex]?.sessionUid;
+      const newChatUid = slugid.nice();
+      setUuids((prev) => ({
+        ...prev,
+        [currentSessionUid]: [...(prev[currentSessionUid] || []), newChatUid],
+      }));
 
-    const response = await fetch(`${serverUrl}/chat`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        query: trim(query),
-        model,
-        temperature,
-        stream,
-        sessionUid: currentSessionUid,
-      }),
-      signal: controller.signal,
-    });
-    if (response.ok) {
+      const response = await fetch(`${serverUrl}/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query: trim(query),
+          model,
+          temperature,
+          stream,
+          sessionUid: currentSessionUid,
+        }),
+        signal: controller.signal,
+      });
+
       // might use these to match the request
       //const _sessionUid = response.headers.get("X-Session-Uid") || "";
       //const _chatUid = response.headers.get("X-Chat-Uid") || "";
@@ -611,11 +613,12 @@ const Gpt = () => {
         setResult(_result || {});
         return JSON.stringify(_result);
       }
+    } catch (error: any) {
+      setResult({
+        content: `Request failure`,
+      });
+      return false;
     }
-    setResult({
-      content: `[Invalid server response - ${response.status} ${response.statusText}]`,
-    });
-    return false;
   };
 
   // Send the API request once there's a query and sending status.
@@ -623,6 +626,11 @@ const Gpt = () => {
     if (query && sending) {
       controllerRef.current = new AbortController();
       console.log({ SendingQuery: query, selectedModel, temperature, stream });
+
+      // Clear previous results *BEFORE* sending the new query
+      setStreamContent([]);
+      setStreamContentString("");
+      setResult({}); // Clear for both stream and non-stream cases
 
       apiSendQuery(
         query,
@@ -674,7 +682,7 @@ const Gpt = () => {
         temperature: temperature,
         updated_dt: new Date().toISOString(),
         chat: [
-          ...(currentHistoryItem.chat || []),
+          ...(currentHistoryItem?.chat || []),
           {
             query,
             chatUid: last(uuids[currentHistoryItem.sessionUid] || ""),
@@ -687,6 +695,7 @@ const Gpt = () => {
       setHistory(updatedHistory);
       saveHistory(updatedHistory);
       setPendingHistory(false);
+      setQuery("");
     }
   }, [
     stream,
@@ -696,6 +705,10 @@ const Gpt = () => {
     streamContentString,
     pendingHistory,
     uuids,
+    query,
+    activeHistoryIndex,
+    selectedModel,
+    temperature,
   ]);
 
   /**
@@ -812,7 +825,10 @@ const Gpt = () => {
         ? {
             query,
             result: stream ? { content: streamContentString } : result,
-            chatUid: last(uuids[history[activeHistoryIndex]?.sessionUid.chat]),
+            //chatUid: last(uuids[history[activeHistoryIndex]?.sessionUid.chat]),
+            chatUid: last(
+              uuids[get(history, [activeHistoryIndex, "sessionUid", "chat"])],
+            ),
           }
         : null, // Last duplicate filtered out below
     ].filter(Boolean);
@@ -946,53 +962,60 @@ const Gpt = () => {
                         sx={sxChatMeItemText}
                       />
                     </ListItem>
-                    {chat.result && ( // LLM response
-                      <ListItem sx={sxGptItem}>
-                        <ListItemText
-                          primaryTypographyProps={{ component: "div" }}
-                          secondaryTypographyProps={{ component: "div" }}
-                          primary={
-                            <ReactMarkdown
-                              className="results-box"
-                              remarkPlugins={[remarkGfm]}
-                            >
-                              {get(
-                                chat,
-                                "result.content",
-                                get(chat, "result.message.content"),
-                              )}
-                            </ReactMarkdown>
-                          }
-                          secondary={
-                            <Stack
-                              direction="row"
-                              spacing={1}
-                              justifyContent="left"
-                              alignItems="center"
-                            >
-                              <small>{"(LLM)"}</small>
-                              <IconButton
-                                size="small"
-                                onClick={() =>
-                                  handleCopy(chat.query, `response-${index}`)
-                                }
+                    {(sending &&
+                      !streamContentString &&
+                      index === chatToDisplay.length - 1 && ( // Only for the last/current query
+                        <ListItem>
+                          <ListItemText secondary={<CircularProgress />} />
+                        </ListItem>
+                      )) ||
+                      (chat.result && ( // LLM response
+                        <ListItem sx={sxGptItem}>
+                          <ListItemText
+                            primaryTypographyProps={{ component: "div" }}
+                            secondaryTypographyProps={{ component: "div" }}
+                            primary={
+                              <ReactMarkdown
+                                className="results-box"
+                                remarkPlugins={[remarkGfm]}
                               >
-                                <Tooltip title="Copy this query text">
-                                  {isShowingSuccess(`response-${index}`) ? (
-                                    <ThumbUpIcon
-                                      sx={{ color: "green", opacity: 0.5 }}
-                                    />
-                                  ) : (
-                                    <CopyIcon color="primary" />
-                                  )}
-                                </Tooltip>
-                              </IconButton>
-                            </Stack>
-                          }
-                          sx={sxGptItemText}
-                        />
-                      </ListItem>
-                    )}
+                                {get(
+                                  chat,
+                                  "result.content",
+                                  get(chat, "result.message.content"),
+                                )}
+                              </ReactMarkdown>
+                            }
+                            secondary={
+                              <Stack
+                                direction="row"
+                                spacing={1}
+                                justifyContent="left"
+                                alignItems="center"
+                              >
+                                <small>{"(LLM)"}</small>
+                                <IconButton
+                                  size="small"
+                                  onClick={() =>
+                                    handleCopy(chat.query, `response-${index}`)
+                                  }
+                                >
+                                  <Tooltip title="Copy this query text">
+                                    {isShowingSuccess(`response-${index}`) ? (
+                                      <ThumbUpIcon
+                                        sx={{ color: "green", opacity: 0.5 }}
+                                      />
+                                    ) : (
+                                      <CopyIcon color="primary" />
+                                    )}
+                                  </Tooltip>
+                                </IconButton>
+                              </Stack>
+                            }
+                            sx={sxGptItemText}
+                          />
+                        </ListItem>
+                      ))}
                   </React.Fragment>
                 ))
               ) : (
@@ -1224,11 +1247,10 @@ const Gpt = () => {
             position: sidebarOpen ? "absolute" : "absolute", // Position outside when closed
             bottom: 35,
             right: sidebarOpen ? 0 : "-2px", // Adjust to ensure visibility when closed
-            zIndex: 1,
             width: "100%",
           }}
         >
-          <Tooltip title="Open Sidebar">
+          <Tooltip title={(sidebarOpen ? "Close" : "Open") + " Sidebar"}>
             <IconButton onClick={handleToggleSidebar}>
               {sidebarOpen ? <ChevronLeft /> : <ChevronRight />}
             </IconButton>
@@ -1250,7 +1272,7 @@ const Gpt = () => {
             <List>
               {range(history.length - 1, -1, -1).map((index) => {
                 // Reverse order (range() is less expensive than slice().reverse())
-                const item = history[index];
+                const item = history[index] || {};
                 return (
                   <ListItem
                     dense
@@ -1289,13 +1311,13 @@ const Gpt = () => {
                           <React.Fragment>
                             {item.name}
                             <br />
-                            Created:{" "}
+                            Created:
                             {new Date(item.created_dt).toLocaleString()}
                             <br />
-                            Updated:{" "}
+                            Updated:
                             {new Date(item.updated_dt).toLocaleString()}
                             <br />
-                            Chats: {item.chat.length}
+                            Chats: {size(get(item, "chat", []))}
                           </React.Fragment>
                         }
                         slotProps={{
@@ -1359,7 +1381,8 @@ const Gpt = () => {
         >
           {/* Add future features/content here */}
           {sidebarOpen ? (
-            <div>&nbsp;</div> //future features
+            // <ProjectFileManager models={models} />
+            <React.Fragment />
           ) : (
             <React.Fragment />
           )}

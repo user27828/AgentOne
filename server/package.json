@@ -9,17 +9,32 @@
     "start": "node dist/server.js"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/busboy": "^1.5.4",
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
     "@types/fs-extra": "^11.0.4",
-    "@types/node": "^22.9.3",
+    "@types/json2csv": "^5.0.7",
+    "@types/multer": "^1.4.12",
+    "@types/node": "^22.10.1",
+    "@types/pdf-parse": "^1.1.4",
     "ts-node": "^10.9.2",
     "typescript": "^5.7.2"
   },
   "dependencies": {
+    "@huggingface/inference": "^2.8.1",
+    "@huggingface/transformers": "^3.1.1",
+    "better-sqlite3": "^11.6.0",
+    "busboy": "^1.6.0",
+    "child_process": "^1.0.2",
     "cors": "^2.8.5",
     "express": "^4.21.1",
     "fs-extra": "^11.2.0",
-    "nodemon": "^3.1.7"
+    "json2csv": "^6.0.0-alpha.2",
+    "mammoth": "^1.8.0",
+    "multer": "^1.4.5-lts.1",
+    "nodemon": "^3.1.7",
+    "pdf-parse": "^1.1.1",
+    "xlsx": "^0.18.5"
   }
 }
