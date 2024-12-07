@@ -28,7 +28,7 @@
     "busboy": "^1.6.0",
     "child_process": "^1.0.2",
     "cors": "^2.8.5",
-    "express": "^4.21.1",
+    "express": "^4.21.2",
     "fs-extra": "^11.2.0",
     "json2csv": "^6.0.0-alpha.2",
     "mammoth": "^1.8.0",
