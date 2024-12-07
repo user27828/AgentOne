@@ -11,7 +11,10 @@ import {
   createTheme,
   IconButton,
 } from "@mui/material";
-import { Brightness2, Brightness5 } from "@mui/icons-material";
+import {
+  Brightness2 as DarkModeIcon,
+  WbSunny as LightModeIcon,
+} from "@mui/icons-material";
 import "./index.css";
 import Root from "./pages/root.tsx";
 import Gpt from "./pages/gpt.tsx";
@@ -96,7 +99,7 @@ const App = () => {
         onClick={toggleTheme}
         color="inherit"
       >
-        {darkMode ? <Brightness5 /> : <Brightness2 />}
+        {darkMode ? <LightModeIcon /> : <DarkModeIcon />}
       </IconButton>
       <RouterProvider router={router} />
     </ThemeProvider>
@@ -105,7 +108,7 @@ const App = () => {
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <CookiesProvider>
+    <CookiesProvider defaultSetOptions={{ path: "/", sameSite: "lax" }}>
       <App />
     </CookiesProvider>
   </StrictMode>,

@@ -3,8 +3,8 @@ import path from "path";
 //import { projectsPath } from "./server";
 
 const dbPath = path.join(
-  path.join(__dirname, "..", "..", ".projects"),
-  "database.db",
+  path.join(__dirname, "..", "..", ".user-data"),
+  "AgentOne.db",
 );
 
 export const db = new Database(dbPath);
@@ -12,6 +12,38 @@ export const db = new Database(dbPath);
 db.pragma("journal_mode = WAL"); // For better concurrency
 
 // Schema
+// -Chat history - sessions
+db.prepare(
+  `CREATE TABLE IF NOT EXISTS sessions 
+    (id INTEGER PRIMARY KEY AUTOINCREMENT, uid TEXT, name TEXT, model TEXT, 
+      temperature FLOAT DEFAULT 0.7, createdAt DATETIME, updatedAt DATETIME, 
+      modelFileId TEXT, templateId TEXT, isArchive INTEGER DEFAULT 0, jsonMeta TEXT)`,
+).run();
+
+// -Chat history - chats
+db.prepare(
+  `CREATE TABLE IF NOT EXISTS chats 
+    (id INTEGER PRIMARY KEY AUTOINCREMENT, uid TEXT, sessionId INTEGER, 
+      query TEXT, reply TEXT, role TEXT, createdAt DATETIME, jsonMeta TEXT)`,
+).run();
+
+// -Chat FTS virtual table
+// SELECT * FROM chats WHERE id IN (SELECT id FROM chats_fts WHERE chats_fts MATCH 'what did you say about my dog?!');
+// or
+// SELECT sessions.*, chats.*
+// FROM chats
+// INNER JOIN sessions ON chats.sessionId = sessions.id
+// WHERE chats.id IN (SELECT id FROM chats_fts WHERE chats_fts MATCH 'what did you say about my dog?!');
+db.prepare(
+  `CREATE VIRTUAL TABLE IF NOT EXISTS chats_fts USING fts5(
+  id,
+  query,
+  reply,
+  content='chats',
+  content_rowid='id'
+)`,
+).run();
+
 // -Projects:
 db.prepare(
   `CREATE TABLE IF NOT EXISTS projects 

@@ -20,7 +20,8 @@
   "scripts": {
     "build": "yarn workspace @agentone/server build && yarn workspace @agentone/client build",
     "clean": "yarn workspace @agentone/server clean && yarn workspace @agentone/client clean",
-    "dev": "concurrently -r --restart-tries 3 --handle-input \"yarn workspace @agentone/server dev\" \"yarn workspace @agentone/client dev\" \"yarn train-server\"",
+    "dev": "concurrently -r --restart-tries 3 --handle-input \"yarn workspace @agentone/server dev\" \"yarn workspace @agentone/client dev\"",
+    "dev:train": "concurrently -r --restart-tries 3 --handle-input \"yarn workspace @agentone/server dev\" \"yarn workspace @agentone/client dev\" \"yarn train-server\"",
     "dev:client": "yarn workspace @agentone/client dev",
     "dev:server": "yarn workspace @agentone/server dev",
     "lint": "eslint .",
@@ -36,7 +37,7 @@
     "@types/mime-types": "^2.1.4",
     "concurrently": "^9.1.0",
     "eslint": "^9.16.0",
-    "eslint-plugin-react-hooks": "^5.0.0",
+    "eslint-plugin-react-hooks": "^5.1.0",
     "eslint-plugin-react-refresh": "^0.4.16",
     "globals": "^15.13.0",
     "nodemon": "^3.1.7",
