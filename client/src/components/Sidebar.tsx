@@ -15,6 +15,7 @@ import {
   Drawer,
   FormControl,
   FormControlLabel,
+  Grid2 as Grid,
   IconButton,
   InputLabel,
   List,
@@ -41,11 +42,13 @@ import {
   Settings as SettingsIcon,
   DriveFileRenameOutline as RenameIcon,
   Thermostat as TemperatureIcon,
+  InterpreterMode as ModelfileIcon,
 } from "@mui/icons-material";
 import { serverUrl } from "../../src/pages/gpt";
-
+import ModelfileManager from "./ModelfileManager";
 interface SidebarProps {
   models: string[];
+  setModels: (state: any) => void;
   selectedModel: string;
   temperature: number;
   stream: boolean;
@@ -68,10 +71,32 @@ interface SidebarProps {
 }
 
 /**
+ * @param {array} param0.models - Model list
+ * @param {function} param0.setModels
+ * @param {boolean} param0.loading - Main loading state
+ * @param {boolean} param0.sending - Main data sending state
+ * @param {string} param0.selectedModel
+ * @param {number} param0.temperature
+ * @param {boolean} param0.stream
+ * @param {boolean} param0.showDebug
+ * @param {object} param0.history
+ * @param {function} param0.setHistory
+ * @param {integer} param0.activeHistoryIndex
+ * @param {function} param0.setActiveHistoryIndex
+ * @param {function} param0.setUuids
+ * @param {boolean} param0.sidebarOpen
+ * @param {function} param0.handleToggleSidebar
+ * @param {function} param0.createNewHistoryItem
+ * @param {function} param0.saveHistory
+ * @param {function} param0.setShowDebug
+ * @param {function} param0.handleModelChange
+ * @param {function} param0.handleStreamChange
+ * @param {function} param0.handleTemperatureChange
  * @component
  */
 const Sidebar: React.FC<SidebarProps> = ({
   models,
+  setModels,
   loading,
   sending,
   selectedModel,
@@ -103,6 +128,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     null,
   );
   const [settingsOpen, setSettingsOpen] = React.useState<boolean>(false);
+  const [modelfileManagerOpen, setModelfileManagerOpen] = useState(false);
 
   const handleClickTemp = (event: React.MouseEvent<HTMLElement>) => {
     setAnchorElTemp(event.currentTarget);
@@ -180,7 +206,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           );
         }
 
-        //Remove from uuids
+        // Remove from uuids
         setUuids((prev: any) => {
           const newUuids = { ...prev };
           delete newUuids[sessionToDelete.id];
@@ -188,13 +214,15 @@ const Sidebar: React.FC<SidebarProps> = ({
         });
       } catch (error) {
         console.error("Error deleting session:", error);
-        // Consider adding user-facing error handling here
       } finally {
         handleMenuClose();
       }
     }
   };
 
+  /**
+   * Persistent storage saving for a rename
+   */
   const handleRenameSave = async () => {
     if (renamingItemIndex !== null) {
       const updatedSession = {
@@ -406,7 +434,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           textAlign: "right",
         }}
       >
-        {/* Add future features/content here */}
+        {/* Add future settings/features here (not part of the history list area) */}
         {sidebarOpen ? (
           <>
             {/* <ProjectFileManager models={models} /> */}
@@ -467,8 +495,8 @@ const Sidebar: React.FC<SidebarProps> = ({
                       title={`Currently: ${temperature}.  Randomness of results/"truth" vs "creativity"`}
                     >
                       <Slider
-                        value={temperature} // Make sure temperature is accessible here
-                        onChange={handleTemperatureChange} // Make sure handleTemperatureChange is accessible here
+                        value={temperature}
+                        onChange={handleTemperatureChange}
                         step={0.1}
                         marks
                         min={0}
@@ -502,17 +530,29 @@ const Sidebar: React.FC<SidebarProps> = ({
       >
         <DialogTitle>Settings</DialogTitle>
         <DialogContent>
-          <FormControlLabel
-            control={
-              <Switch
-                disabled={!size(models)}
-                checked={stream} // Make sure 'stream' is in scope
-                onChange={handleStreamChange} // Make sure handleStreamChange is in scope
+          <Grid container direction="column" spacing={1}>
+            <Grid size={12}>
+              <FormControlLabel
+                control={
+                  <Switch
+                    disabled={!size(models)}
+                    checked={stream}
+                    onChange={handleStreamChange}
+                  />
+                }
+                label="Stream"
               />
-            }
-            label="Stream"
-          />
-          {/* Add other general settings here as needed */}
+            </Grid>
+            <Grid size={12}>
+              <Button
+                variant="contained"
+                startIcon={<ModelfileIcon />}
+                onClick={() => setModelfileManagerOpen(true)}
+              >
+                Manage Modelfiles
+              </Button>
+            </Grid>
+          </Grid>
         </DialogContent>
         <DialogActions>
           <Button variant="contained" onClick={() => setSettingsOpen(false)}>
@@ -520,6 +560,27 @@ const Sidebar: React.FC<SidebarProps> = ({
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/*  Modelfile Manager Dialog */}
+      <ModelfileManager
+        open={modelfileManagerOpen}
+        onClose={() => setModelfileManagerOpen(false)}
+        models={models}
+        setModels={setModels}
+        selectedModel={selectedModel}
+        temperature={temperature}
+        stream={stream}
+        onSave={(response) => {
+          console.log("Modelfile saved:", response);
+        }}
+        onDelete={(response) => {
+          console.log("Modelfile deleted:", response);
+        }}
+        onModelCreateUpdate={(model) => {
+          console.log("Modelfile Created/Updated:", model);
+          handleModelChange({ target: { value: model } } as any);
+        }}
+      />
 
       {/* Rename Dialog */}
       <Dialog

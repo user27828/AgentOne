@@ -11,6 +11,7 @@ import axios from "axios";
 //import FineTune from "./routes/finetune";
 //import FileMan from "./routes/fileman";
 import ChatSessions from "./routes/chat-session";
+import Modelfile from "./routes/modelfile";
 import { db } from "./sqlite";
 
 dotenv.config({ path: path.resolve(__dirname, "../../.env") });
@@ -33,13 +34,16 @@ app.use(express.json({ inflate: true, type: "application/json" }));
 //app.use("/fileman", FileMan);
 //app.use("/finetune", FineTune);
 app.use("/session", ChatSessions);
+app.use("/modelfile", Modelfile);
 
 //- Helper Functions
 //------------------------------------------------------------------------------
 /**
  * Save the chat message pair (query and reply)
- * @param param0.request - Contents of /chat request (but not req)
- * @param param0.response - Response from the bot
+ * @param {object} param0.request - Contents of /chat request.
+ *  Note that this is NOT the express.Request object
+ * @param {object} param0.response - Response from the bot, but not the
+ *  express.Response object
  */
 const saveChatMessage = async ({
   request,
@@ -139,14 +143,15 @@ app.get("/list-models", async (req, res) => {
 
 /**
  * Main chat endpoint
- *
+ * This also handles storage of chats in history
  * @param {string} req.body.query - Chat query
  * @param {string} req.body.model - Selected model on the backend
  * @param {number} req.body.temperature - LLM temperature (default .7)
  * @param {boolean} req.body.stream - Stream response?
- * @param {string} req.body.sessionUid - Session UID to return to user
- * @param {string} req.body.chatUid - Chat UID to return to user
- * @param {string} req.body.system - System message (overrides Modelfile, if exists)
+ * @param {string} [req.body.sessionUid] - Session UID to return to user
+ * @param {string} [req.body.chatUid] - Chat UID to return to user
+ * @param {string} [req.body.system] - System message (overrides Modelfile, if exists)
+ * @returns {mixed} - Object of results, or ReadableStream
  */
 app.post("/chat", async (req, res) => {
   const {
@@ -196,7 +201,7 @@ app.post("/chat", async (req, res) => {
           while (true) {
             const { done, value } = await reader.read();
             if (done) {
-              // Must be here, otherwise awaiting streamResponse() would be blocking
+              // saveChatMessage be here, otherwise awaiting streamResponse() would be blocking
               saveChatMessage({
                 request: req.body,
                 response: {
@@ -242,6 +247,8 @@ app.post("/chat", async (req, res) => {
   }
 });
 
+//- Startup
+//------------------------------------------------------------------------------
 app.listen(PORT, () => {
-  console.log(`Server is running on http://localhost:${PORT}`);
+  console.log(`Express server is running on http://localhost:${PORT}`);
 });

@@ -75,7 +75,7 @@ const sxGptItemText = {
  * Fetch a list of available models from the LLM server
  * @returns {array} - List of models and their properties
  */
-const apiListModels = async () => {
+export const apiListModels = async () => {
   try {
     const response = await axios.get(`${serverUrl}/list-models`);
     return response.data;
@@ -418,7 +418,7 @@ const Gpt = () => {
 
   /**
    * Delete specific history item
-   * @param {integer} index - History item by index
+   * @param {integer} uid - History UID
    */
   const handleDeleteHistoryMessage = async (uid: string) => {
     console.log({ uid });
@@ -524,7 +524,7 @@ const Gpt = () => {
       last(uuids[lastHistoryItem.sessionUid]) ===
         get(lastHistoryChat, "chatUid");
 
-    //Combine history and current query for display, filtering out the duplicate last message if needed
+    // Combine history and current query for display, filtering out the duplicate last message if needed
     const chatToDisplay = [
       ...(sessionChats || []),
       sending && !isDuplicate
@@ -555,6 +555,7 @@ const Gpt = () => {
       });
     };
 
+    // TODO: Auto-scroll to bottom kind-of works, but needs more attention
     useEffect(() => {
       const listElement = chatListRef.current;
 
@@ -984,6 +985,7 @@ const Gpt = () => {
       <Sidebar
         {...{
           models,
+          setModels,
           history,
           loading,
           sending,
