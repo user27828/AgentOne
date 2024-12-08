@@ -44,6 +44,21 @@ db.prepare(
 )`,
 ).run();
 
+// -Modelfiles
+db.prepare(
+  `CREATE TABLE IF NOT EXISTS modelfiles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    uid TEXT UNIQUE,
+    baseModel TEXT,
+    name TEXT,
+    content TEXT,
+    isArchive INTEGER DEFAULT 0,
+    createdAt DATETIME,
+    updatedAt DATETIME,
+    archivedAt DATETIME
+  )`,
+).run();
+
 // -Projects:
 db.prepare(
   `CREATE TABLE IF NOT EXISTS projects 

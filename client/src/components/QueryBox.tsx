@@ -30,7 +30,14 @@ interface QueryBoxProps {
 
 /**
  * Query box and settings component
- * @param param0
+ * @param {string} param0.query - User query string
+ * @param {React.Ref} param0.queryFieldRef - Query textfield ref
+ * @param {function} param0.handleQuery - Callback
+ * @param {function} param0.handleSend - Callback
+ * @param {function} param0.handleCancel - Callback
+ * @param {array} param0.models - Primary component-stored model list
+ * @param {boolean} param0.loading
+ * @param {sending} param0.sending
  * @returns {JSX.Element}
  * @component
  */
@@ -57,8 +64,7 @@ const QueryBox: React.FC<QueryBoxProps> = ({
   const handleKeyPress = (event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
-      // Prevent the default "Enter" behavior to avoid newline in TextField
-      handleLocalSend(event);
+      handleLocalSend(event); // Prevent the default "Enter" behavior to avoid newline in TextField
     }
   };
 

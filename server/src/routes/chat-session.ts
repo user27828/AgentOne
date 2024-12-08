@@ -15,19 +15,18 @@ const router = Router();
 //------------------------------------------------------------------------------
 /**
  * Get a list of chat sessions and their metadata
+ * @param {boolean} req.params.archive - 0 or 1 - Show archived sessions
  */
 router.get("/list/:archive?", (req, res) => {
   const isArchive = req.params.archive === "archive" ? 1 : 0;
   try {
     const sessions = db
       .prepare(
-        `
-      SELECT s.*, COUNT(c.id) AS totalChats
+        `SELECT s.*, COUNT(c.id) AS totalChats
       FROM sessions s
       LEFT JOIN chats c ON s.id = c.sessionId
       WHERE s.isArchive = ?
-      GROUP BY s.id
-    `,
+      GROUP BY s.id`,
       )
       .all(isArchive);
 
@@ -39,7 +38,13 @@ router.get("/list/:archive?", (req, res) => {
 });
 
 /**
- * Create a chat new session
+ * Create a new chat session
+ * @param {string} req.body.name - Session name
+ * @param {string} req.body.model
+ * @param {number} req.body.temperature
+ * @param {integer} [req.body.modelFileId]
+ * @param {integer} [req.body.templateId]
+ * @param {JSON} [req.body.jsonMeta]
  */
 router.post("/", (req, res) => {
   const {
@@ -84,6 +89,8 @@ router.post("/", (req, res) => {
 
 /**
  * Get full session data, including associated chats
+ * @param {string} req.params.sessionUid - Session UID
+ * @returns {object} {sessions: <session>, chats: <chats>}
  */
 router.get("/:sessionUid", (req: Request, res: Response): any => {
   const sessionUid = req.params.sessionUid;
@@ -106,6 +113,14 @@ router.get("/:sessionUid", (req: Request, res: Response): any => {
 
 /**
  * Rename or alter session data
+ * @param {string} req.params.sessionUid
+ * @param {string} [req.body.name]
+ * @param {string} [req.body.model]
+ * @param {number} [req.body.temperature]
+ * @param {integer} [req.body.modelFileId]
+ * @param {integer} [req.body.templateId]
+ * @param {integer} [req.body.isArchive]
+ * @param {JSON} [req.body.jsonMeta]
  */
 router.put("/:sessionUid", (req: Request, res: Response): any => {
   const sessionUid = req.params.sessionUid;
@@ -184,6 +199,7 @@ router.put("/:sessionUid", (req: Request, res: Response): any => {
 
 /**
  * Delete a session
+ * @param {string} req.params.sessionUid
  */
 router.delete("/:sessionUid", (req, res): any => {
   const sessionUid = req.params.sessionUid;
@@ -199,6 +215,7 @@ router.delete("/:sessionUid", (req, res): any => {
 
 /**
  * Delete a specific chat
+ * @param {string} req.params.sessionUid
  */
 router.post("/:sessionUid/chat/delete", (req, res): any => {
   // Changed to POST
