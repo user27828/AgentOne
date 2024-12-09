@@ -64,7 +64,7 @@ const sxGptItem = {
   textAlign: "left",
 };
 const sxGptItemText = {
-  marginTop: 1,
+  marginTop: 0.1,
   border: "1px solid rgba(255,255,255,.05)",
   background: "rgba(0,.1,0,.1)",
   padding: "5px",
@@ -1028,20 +1028,18 @@ const Gpt = () => {
             sx={{
               flexGrow: 1,
               overflowY: "auto",
-              marginBottom: 1,
+              marginBottom: 0.5,
             }}
           >
             <StreamingResultBox />
             <div ref={streamingEndRef} />
           </Grid>
         </Grid>
-
         {/* QueryBox */}
         <Box
           sx={{
             width: "100%",
             flexShrink: 0, // Prevents QueryBox container from shrinking
-            padding: "6px 1px 5px 1px",
             boxShadow: "0 -2px 5px rgba(0,0,0,0.1)",
             backgroundColor: "rgba(0,0,0,0.05)",
           }}
