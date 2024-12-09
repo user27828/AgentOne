@@ -530,27 +530,42 @@ const Sidebar: React.FC<SidebarProps> = ({
       >
         <DialogTitle>Settings</DialogTitle>
         <DialogContent>
-          <Grid container direction="column" spacing={1}>
-            <Grid size={12}>
-              <FormControlLabel
-                control={
-                  <Switch
-                    disabled={!size(models)}
-                    checked={stream}
-                    onChange={handleStreamChange}
-                  />
-                }
-                label="Stream"
-              />
+          <Grid container direction="column" spacing={2}>
+            <Grid container direction="row" size={12}>
+              <Grid size={6}>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      disabled={!size(models)}
+                      checked={stream}
+                      onChange={handleStreamChange}
+                    />
+                  }
+                  label="Stream"
+                />
+              </Grid>
+              <Grid size={6}>
+                Stream controls whether or not you will see "realtime" chat
+                responses, or everything at once.
+              </Grid>
             </Grid>
-            <Grid size={12}>
-              <Button
-                variant="contained"
-                startIcon={<ModelfileIcon />}
-                onClick={() => setModelfileManagerOpen(true)}
-              >
-                Manage Modelfiles
-              </Button>
+            <Divider textAlign="left">Modelfiles</Divider>
+            <Grid container direction="row" size={12}>
+              <Grid size={6}>
+                <Button
+                  variant="contained"
+                  startIcon={<ModelfileIcon />}
+                  onClick={() => setModelfileManagerOpen(true)}
+                >
+                  Manage Modelfiles
+                </Button>
+              </Grid>
+              <Grid size={6}>
+                Modelfiles allow you to create a version of a base model which
+                has specific SYSTEM instructions. As an example, you can create
+                a persona of Carl Sagan to answer all of your cosmic questions.
+                These customized versions appear in your model list selection.
+              </Grid>
             </Grid>
           </Grid>
         </DialogContent>
@@ -563,22 +578,24 @@ const Sidebar: React.FC<SidebarProps> = ({
 
       {/*  Modelfile Manager Dialog */}
       <ModelfileManager
-        open={modelfileManagerOpen}
-        onClose={() => setModelfileManagerOpen(false)}
-        models={models}
-        setModels={setModels}
-        selectedModel={selectedModel}
-        temperature={temperature}
-        stream={stream}
-        onSave={(response) => {
-          console.log("Modelfile saved:", response);
-        }}
-        onDelete={(response) => {
-          console.log("Modelfile deleted:", response);
-        }}
-        onModelCreateUpdate={(model) => {
-          console.log("Modelfile Created/Updated:", model);
-          handleModelChange({ target: { value: model } } as any);
+        {...{
+          open: modelfileManagerOpen,
+          onClose: () => setModelfileManagerOpen(false),
+          models,
+          setModels,
+          selectedModel,
+          temperature,
+          stream,
+          onSave: (response) => {
+            console.log("Modelfile saved:", response);
+          },
+          onDelete: (response) => {
+            console.log("Modelfile deleted:", response);
+          },
+          onModelCreateUpdate: (model) => {
+            console.log("Modelfile Created/Updated:", model);
+            handleModelChange({ target: { value: model } } as any);
+          },
         }}
       />
 
@@ -592,7 +609,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         <DialogTitle>Rename Chat</DialogTitle>
         <DialogContent>
           <TextField
-            autoFocus
+            autoFocus={true}
             margin="dense"
             id="name"
             label="New Name"
@@ -609,8 +626,15 @@ const Sidebar: React.FC<SidebarProps> = ({
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setRenameDialogOpen(false)}>Cancel</Button>
-          <Button onClick={handleRenameSave}>Save</Button>
+          <Button
+            variant="contained"
+            onClick={() => setRenameDialogOpen(false)}
+          >
+            Cancel
+          </Button>
+          <Button variant="contained" onClick={handleRenameSave}>
+            Save
+          </Button>
         </DialogActions>
       </Dialog>
     </Drawer>

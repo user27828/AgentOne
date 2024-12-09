@@ -218,9 +218,8 @@ router.delete("/:sessionUid", (req, res): any => {
  * @param {string} req.params.sessionUid
  */
 router.post("/:sessionUid/chat/delete", (req, res): any => {
-  // Changed to POST
   const sessionUid = req.params.sessionUid;
-  const chatIdsToDelete = req.body.chatIds; // Expecting an array of chat IDs
+  const chatIdsToDelete = req.body.chatIds; // Array of chat IDs
   console.log({ sessionUid, chatIdsToDelete });
   if (!Array.isArray(chatIdsToDelete) || chatIdsToDelete.length === 0) {
     return res

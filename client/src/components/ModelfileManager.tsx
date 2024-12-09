@@ -340,7 +340,10 @@ const ModelfileManager: React.FC<ModelfileManagerProps> = ({
       <DialogTitle>Manage Modelfiles</DialogTitle>
       <DialogContent>
         {/* Model Selection */}
-        <FormControl fullWidth>
+        <FormControl
+          fullWidth
+          disabled={size(baseModels) + size(customModels) < 1}
+        >
           <InputLabel id="model-select-label">Models</InputLabel>
           <Select
             labelId="model-select-label"
@@ -373,6 +376,7 @@ const ModelfileManager: React.FC<ModelfileManagerProps> = ({
         <TextField
           label="Modelfile Name"
           value={modelfileName}
+          disabled={size(baseModels) + size(customModels) < 1}
           onChange={(e) => setModelfileName(e.target.value)}
           fullWidth
           margin="normal"
@@ -382,6 +386,7 @@ const ModelfileManager: React.FC<ModelfileManagerProps> = ({
         <TextField
           label="Modelfile Content"
           value={modelfileContent}
+          disabled={size(baseModels) + size(customModels) < 1}
           onChange={(e) => setModelfileContent(e.target.value)}
           multiline
           rows={10}
