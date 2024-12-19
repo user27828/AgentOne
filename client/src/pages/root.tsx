@@ -9,14 +9,14 @@ function App() {
 
   return (
     <Box sx={{ maxWidth: "500px", padding: "2em", textAlign: "center" }}>
-      <div>
+      <Box>
         <a href="https://vite.dev" target="_blank">
           <img src={viteLogo} className="logo" alt="Vite logo" />
         </a>
         <a href="https://react.dev" target="_blank">
           <img src={reactLogo} className="logo react" alt="React logo" />
         </a>
-      </div>
+      </Box>
       <h1>Vite + React</h1>
       <Card sx={{ mb: 2 }}>
         <CardContent>

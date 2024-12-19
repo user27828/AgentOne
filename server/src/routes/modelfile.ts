@@ -126,8 +126,11 @@ const createOrUpdateModelfile = async ({
 
     console.debug("createOrUpdateModelfile()", {
       method,
+      model,
+      name,
       uid,
       response,
+      modelfile: content,
     });
     if (!response.ok) {
       const errorData = await response.json();

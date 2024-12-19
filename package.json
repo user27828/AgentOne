@@ -32,25 +32,25 @@
     "train-server": "env -i bash -c '. train_model/.venv/bin/activate && uvicorn train_model.train_model:app --reload --host 0.0.0.0 --port 8010'"
   },
   "devDependencies": {
-    "@eslint/js": "^9.16.0",
+    "@eslint/js": "^9.17.0",
     "@types/lodash": "^4.17.13",
     "@types/mime-types": "^2.1.4",
     "concurrently": "^9.1.0",
-    "eslint": "^9.16.0",
+    "eslint": "^9.17.0",
     "eslint-plugin-react-hooks": "^5.1.0",
     "eslint-plugin-react-refresh": "^0.4.16",
-    "globals": "^15.13.0",
-    "nodemon": "^3.1.7",
+    "globals": "^15.14.0",
+    "nodemon": "^3.1.9",
     "prettier": "^3.4.2",
     "typescript": "~5.7.2",
-    "typescript-eslint": "^8.17.0"
+    "typescript-eslint": "^8.18.1"
   },
   "dependencies": {
     "axios": "^1.7.9",
     "dayjs": "^1.11.13",
     "dotenv": "^16.4.7",
     "lodash": "^4.17.21",
-    "mime": "^4.0.4",
+    "mime": "^4.0.6",
     "mime-types": "^2.1.35",
     "slugid": "^5.0.1"
   }
