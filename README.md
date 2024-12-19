@@ -1,6 +1,6 @@
 # AgentOne - Vite+React front+backend for Ollama servers
 
-This app provides a starter frontend for Ollama servers that provide a REST API interface.
+This app provides a starter frontend for Ollama servers that provide a REST API interface.  Contains chat history and the ability to customize Modelfile settings for creating personas.
 
 <small>(Click below for a video preview)</small><br/>
 <a href="https://www.youtube.com/watch?v=vVfMWTNXFLo" target="_blank" rel="noopener noreferrer"><img src="https://img.youtube.com/vi/vVfMWTNXFLo/0.jpg" alt="[Sample video]" /></a>
@@ -26,7 +26,7 @@ Different models can be chosen from this list: [Ollama Library](https://ollama.c
 ## Prepare the front/backend
 
 - Install required tools
-  - Node 18+, which includes corepack
+  - Node 22+, which includes corepack
   - Make sure corepack is enabled after making sure you're running Node 18+ (for yarn) - `corepack enable`<br />
     Note: It's no longer necessary to install yarn by itself from npm. Node bundles corepack, and corepack installs + manages yarn.
 - Clone this repo - `git clone git@github.com:user27828/AgentOne.git`
@@ -51,7 +51,6 @@ Different models can be chosen from this list: [Ollama Library](https://ollama.c
 
 ## TODO
 
-- Chat session history (on the sidebar)
 - Add more functionality offered by the Ollama API.
 
 ## References:
