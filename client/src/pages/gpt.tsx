@@ -1032,7 +1032,7 @@ const Gpt = () => {
             }}
           >
             <StreamingResultBox />
-            <div ref={streamingEndRef} />
+            <Box ref={streamingEndRef} />
           </Grid>
         </Grid>
         {/* QueryBox */}

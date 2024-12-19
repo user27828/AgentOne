@@ -83,6 +83,9 @@ const ModelfileManager: React.FC<ModelfileManagerProps> = ({
   const [modelfileContent, setModelfileContent] = useState("");
   const [modelfileStreamContent, setModelfileStreamContent] = useState("");
   const [savingModelfile, setSavingModelfile] = useState(false);
+  const [formErrors, setFormErrors] = useState<{
+    modelfileName?: string;
+  }>({});
 
   // Reset state when the dialog opens (or selectedModel changes)
   useEffect(() => {
@@ -212,6 +215,9 @@ const ModelfileManager: React.FC<ModelfileManagerProps> = ({
    * Creates or updates the model when the action button is pressed.
    */
   const handleSaveModelfile = async () => {
+    if (Object.keys(formErrors).length > 0) {
+      return; // Errors are present
+    }
     setSavingModelfile(true);
     setModelfileStreamContent("");
     const isCustomModel = !baseModels.includes(selectedModelLocal);
@@ -219,6 +225,7 @@ const ModelfileManager: React.FC<ModelfileManagerProps> = ({
     const uid = selectedModelfile?.uid;
     const url = `${serverUrl}/modelfile/${uid ? uid : "create"}`;
 
+    console.log("handleSaveModelfile()", { selectedModelLocal, modelfileName });
     try {
       const response = await fetch(url, {
         method,
@@ -335,6 +342,25 @@ const ModelfileManager: React.FC<ModelfileManagerProps> = ({
     }
   };
 
+  const handleModelfileNameChange = (
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const val = e.target.value;
+    const errors = { ...formErrors };
+
+    if (val.includes(" ")) {
+      errors.modelfileName = "Modelfile name cannot contain spaces.";
+    } else if (baseModels.includes(val)) {
+      errors.modelfileName =
+        "Modelfile name cannot be the same as a base model";
+    } else {
+      delete errors.modelfileName;
+    }
+
+    setModelfileName(val);
+    setFormErrors(errors);
+  };
+
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="xl">
       <DialogTitle>Manage Modelfiles</DialogTitle>
@@ -377,9 +403,11 @@ const ModelfileManager: React.FC<ModelfileManagerProps> = ({
           label="Modelfile Name"
           value={modelfileName}
           disabled={size(baseModels) + size(customModels) < 1}
-          onChange={(e) => setModelfileName(e.target.value)}
+          onChange={handleModelfileNameChange}
           fullWidth
           margin="normal"
+          error={!!formErrors.modelfileName}
+          helperText={formErrors.modelfileName}
         />
 
         {/* Modelfile Content */}
@@ -410,8 +438,9 @@ const ModelfileManager: React.FC<ModelfileManagerProps> = ({
           variant="contained"
           startIcon={<CancelIcon />}
           onClick={onClose}
+          size="small"
         >
-          Cancel
+          Close
         </Button>
         <Button
           variant="contained"
@@ -419,6 +448,7 @@ const ModelfileManager: React.FC<ModelfileManagerProps> = ({
           startIcon={<DeleteIcon />}
           onClick={handleDeleteModelfile}
           disabled={!selectedModelfile}
+          size="small"
         >
           Delete
         </Button>
@@ -436,7 +466,8 @@ const ModelfileManager: React.FC<ModelfileManagerProps> = ({
           disabled={
             savingModelfile ||
             size(modelfileName) <= 5 ||
-            size(modelfileContent) <= 50
+            size(modelfileContent) <= 50 ||
+            Object.keys(formErrors).length > 0
           }
         >
           {selectedModelfile && !baseModels.includes(selectedModelLocal)
