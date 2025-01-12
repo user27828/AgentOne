@@ -29,7 +29,8 @@
     "start": "concurrently -r --restart-tries 3 --handle-input \"yarn workspace @agentone/server start\" \"yarn workspace @agentone/client preview\"",
     "start:client": "yarn workspace @agentone/client preview",
     "start:server": "yarn workspace @agentone/server start",
-    "train-server": "env -i bash -c '. train_model/.venv/bin/activate && uvicorn train_model.train_model:app --reload --host 0.0.0.0 --port 8010'"
+    "train-server": "env -i bash -c '. train_model/.venv/bin/activate && uvicorn train_model.train_model:app --reload --host 0.0.0.0 --port 8010'",
+    "upgrade": "yarn upgrade-interactive"
   },
   "devDependencies": {
     "@eslint/js": "^9.18.0",
