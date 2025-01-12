@@ -16,7 +16,7 @@
   ],
   "version": "0.0.1",
   "type": "module",
-  "packageManager": "yarn@4.5.1+sha512.341db9396b6e289fecc30cd7ab3af65060e05ebff4b3b47547b278b9e67b08f485ecd8c79006b405446262142c7a38154445ef7f17c1d5d1de7d90bf9ce7054d",
+  "packageManager": "yarn@4.5.3",
   "scripts": {
     "build": "yarn workspace @agentone/server build && yarn workspace @agentone/client build",
     "clean": "yarn workspace @agentone/server clean && yarn workspace @agentone/client clean",
@@ -32,18 +32,18 @@
     "train-server": "env -i bash -c '. train_model/.venv/bin/activate && uvicorn train_model.train_model:app --reload --host 0.0.0.0 --port 8010'"
   },
   "devDependencies": {
-    "@eslint/js": "^9.17.0",
-    "@types/lodash": "^4.17.13",
+    "@eslint/js": "^9.18.0",
+    "@types/lodash": "^4.17.14",
     "@types/mime-types": "^2.1.4",
-    "concurrently": "^9.1.0",
-    "eslint": "^9.17.0",
+    "concurrently": "^9.1.2",
+    "eslint": "^9.18.0",
     "eslint-plugin-react-hooks": "^5.1.0",
-    "eslint-plugin-react-refresh": "^0.4.16",
+    "eslint-plugin-react-refresh": "^0.4.18",
     "globals": "^15.14.0",
     "nodemon": "^3.1.9",
     "prettier": "^3.4.2",
-    "typescript": "~5.7.2",
-    "typescript-eslint": "^8.18.1"
+    "typescript": "~5.7.3",
+    "typescript-eslint": "^8.19.1"
   },
   "dependencies": {
     "axios": "^1.7.9",
