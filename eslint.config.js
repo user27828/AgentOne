@@ -3,6 +3,10 @@ import globals from "globals";
 import reactHooks from "eslint-plugin-react-hooks";
 import reactRefresh from "eslint-plugin-react-refresh";
 import tseslint from "typescript-eslint";
+import { fileURLToPath } from "url";
+import { dirname, resolve } from "path";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export default tseslint.config(
   {
@@ -26,6 +30,9 @@ export default tseslint.config(
     languageOptions: {
       ecmaVersion: 2020,
       globals: globals.browser,
+      parserOptions: {
+        tsconfigRootDir: resolve(__dirname, "client"),
+      },
     },
     plugins: {
       "react-hooks": reactHooks,
@@ -53,6 +60,9 @@ export default tseslint.config(
     languageOptions: {
       ecmaVersion: 2020,
       globals: globals.node,
+      parserOptions: {
+        tsconfigRootDir: resolve(__dirname, "."),
+      },
     },
     rules: {
       "@typescript-eslint/no-explicit-any": "off",
