@@ -5,7 +5,7 @@ import fs from "fs-extra";
 import { Parser } from "json2csv";
 import mammoth from "mammoth"; // docx
 import xlsx from "xlsx";
-import PDFParser from "pdf-parse";
+import pdfParse from "pdf-parse";
 import { isArray, isObject, keys, get } from "lodash";
 
 /**
@@ -142,7 +142,7 @@ export const preprocessJSONL = (filePath: string): string => {
  */
 export const preprocessPDF = async (filePath: string): Promise<string> => {
   try {
-    const pdfData = await PDFParser(fs.readFileSync(filePath));
+    const pdfData = await (pdfParse as any)(fs.readFileSync(filePath));
     let processedText = pdfData.text.toLowerCase(); // Lowercase
     processedText = processedText.replace(/<[^>]*>/g, ""); // Remove HTML-like tags
 

@@ -4,7 +4,7 @@ import path from "path";
 import dotenv from "dotenv";
 
 // Load vars from parent dir
-dotenv.config({ path: path.resolve(__dirname, "../.env") });
+dotenv.config({ path: path.resolve(__dirname, "../.env"), quiet: true });
 
 // https://vite.dev/config/
 export default defineConfig({

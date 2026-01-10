@@ -14,7 +14,7 @@ import {
   Divider,
   FormControl,
   FormControlLabel,
-  Grid2 as Grid,
+  Grid,
   IconButton,
   InputLabel,
   List,
@@ -55,30 +55,33 @@ const ProjectManager = ({
   onSelectProject,
 }: {
   models: string[];
-  onSelectProject: (project: any) => void;
+  onSelectProject: (project: Record<string, any> | null) => void;
 }) => {
-  const [projects, setProjects] = useState([]);
-  const [editProject, setEditProject] = useState<any>({});
+  const [projects, setProjects] = useState<Record<string, any>[]>([]);
+  const [editProject, setEditProject] = useState<Record<string, any>>({});
   const [openEditDialog, setOpenEditDialog] = useState(false);
-  const [selectedProject, setSelectedProject] = useState<any | null>(null); // project object
-  const [projectToDelete, setProjectToDelete] = useState<any>(null);
+  const [selectedProject, setSelectedProject] = useState<Record<
+    string,
+    any
+  > | null>(null); // project object
+  const [projectToDelete, setProjectToDelete] = useState<Record<
+    string,
+    any
+  > | null>(null);
   const [openConfirmDeleteDialog, setOpenConfirmDeleteDialog] = useState(false);
   const [openConfirmTrainDialog, setOpenConfirmTrainDialog] = useState(false);
   const [trainingModel, setTrainingModel] = useState<string | null>(null); // to hold selected model for training
-  const [projectToTrain, setProjectToTrain] = useState<any>(null);
+  const [projectToTrain, setProjectToTrain] = useState<Record<
+    string,
+    any
+  > | null>(null);
 
-  const [trainingStatus, setTrainingStatus] = useState<{
-    [projectId: string]: any;
-  }>({});
-
-  useEffect(() => {
-    fetchProjects();
-  }, []);
+  const [trainingStatus, setTrainingStatus] = useState<Record<string, any>>({});
 
   const fetchProjects = async () => {
     try {
       const response = await axios.get(`${serverUrl}/fileman/projects`);
-      const projectsData = response.data;
+      const projectsData: any[] = response.data;
       setProjects(projectsData);
       console.log("ProjectManager:fetchProjects()", projectsData);
 
@@ -93,6 +96,10 @@ const ProjectManager = ({
     }
   };
 
+  useEffect(() => {
+    fetchProjects();
+  }, []);
+
   /**
    * Get files within a specified project
    * NOTE: Similar version in FileManager.tsx
@@ -100,8 +107,7 @@ const ProjectManager = ({
    * @param {function} func - Callback with files as param
    * @returns {array} - Array of file metadata objects
    */
-  // @ts-ignore
-  // eslint-disable-next-line
+  // @ts-expect-error: Ignoring type check for function parameter
   const fetchFiles = async (projectId: string, func = (file: any) => {}) => {
     try {
       const projectResponse = await axios.get(
@@ -116,9 +122,9 @@ const ProjectManager = ({
 
   /**
    * Initiate the delete confirmation dialog
-   * @param {string} project - Project metadata object
+   * @param {object} project - Project metadata object
    */
-  const handleDeleteProject = async (project: any) => {
+  const handleDeleteProject = async (project: Record<string, any>) => {
     project.files = await fetchFiles(project.id);
     setProjectToDelete(project);
     setOpenConfirmDeleteDialog(true);
@@ -159,7 +165,7 @@ const ProjectManager = ({
     setOpenEditDialog(true);
   };
 
-  const handleEditProject = (project: any) => {
+  const handleEditProject = (project: Record<string, any>) => {
     setEditProject(project);
     setOpenEditDialog(true);
   };
@@ -187,7 +193,7 @@ const ProjectManager = ({
     }
   };
 
-  const handleTrainModel = (project: any) => {
+  const handleTrainModel = (project: Record<string, any>) => {
     setProjectToTrain(project);
     setTrainingModel(models[0] || null);
     setOpenConfirmTrainDialog(true);
@@ -299,8 +305,8 @@ const ProjectManager = ({
                               const newSelectedProject = projects.find(
                                 (p: any) => p.id === e.target.value,
                               );
-                              onSelectProject(newSelectedProject); // selected project state in parent
-                              setSelectedProject(newSelectedProject); // keep selected state consistent
+                              onSelectProject(newSelectedProject || null); // selected project state in parent
+                              setSelectedProject(newSelectedProject || null); // keep selected state consistent
                             }}
                           >
                             <FormControlLabel

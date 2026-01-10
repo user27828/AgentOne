@@ -1,7 +1,7 @@
 /**
  * File manager for combined project/file manager component
  */
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   Alert,
   List,
@@ -20,7 +20,7 @@ import {
   TextField,
   DialogActions,
   LinearProgress,
-  Grid2 as Grid,
+  Grid,
   Typography,
   Divider,
   Box,
@@ -53,7 +53,7 @@ import {
  * @component
  */
 const FileManager = ({ projectId }: { projectId: string }) => {
-  const [files, setFiles] = useState([]);
+  const [files, setFiles] = useState<any[]>([]);
   const [editFile, setEditFile] = useState<any>(null);
   const [openEditDialog, setOpenEditDialog] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<any>(null);
@@ -78,11 +78,7 @@ const FileManager = ({ projectId }: { projectId: string }) => {
     fetchProjects();
   }, []);
 
-  useEffect(() => {
-    fetchFiles();
-  }, [projectId]); // Re-fetch when projectId changes
-
-  const fetchFiles = async () => {
+  const fetchFiles = useCallback(async () => {
     try {
       const projectResponse = await axios.get(
         `${serverUrl}/fileman/project/${projectId}`,
@@ -91,7 +87,11 @@ const FileManager = ({ projectId }: { projectId: string }) => {
     } catch (error) {
       console.error("Error fetching files:", error);
     }
-  };
+  }, [projectId]);
+
+  useEffect(() => {
+    fetchFiles();
+  }, [projectId, fetchFiles]); // Re-fetch when projectId changes
 
   const handleUploadButtonClick = (
     event: React.MouseEvent<HTMLButtonElement>,
@@ -130,7 +130,7 @@ const FileManager = ({ projectId }: { projectId: string }) => {
 
       if (invalidFiles.length > 0) {
         alert(
-          `The following file types are not allowed: ${invalidFiles.map((file) => file.name).join(", ")}`,
+          `The following file types are not allowed: ${invalidFiles.map((file: any) => file.name).join(", ")}`,
         );
         files = files.filter((file: File) => !invalidFiles.includes(file));
         if (files.length === 0) {
@@ -328,7 +328,7 @@ const FileManager = ({ projectId }: { projectId: string }) => {
     try {
       await axios.post(`${serverUrl}/fileman/project/${projectId}/files/move`, {
         newProjectId: moveFileDestinationProject,
-        fileIds: selectedFiles.map((f) => f.id), // array of file IDs
+        fileIds: selectedFiles.map((f: any) => f.id), // array of file IDs
       });
       fetchFiles();
       handleCloseMoveFileDialog();
@@ -643,7 +643,7 @@ const FileManager = ({ projectId }: { projectId: string }) => {
             </Typography>
           </Alert>
           <List>
-            {selectedFiles.map((file) => (
+            {selectedFiles.map((file: any) => (
               <ListItem key={file.id}>
                 <ListItemIcon>
                   <DestroyIcon color="error" sx={{ size: "16px" }} />
@@ -666,7 +666,9 @@ const FileManager = ({ projectId }: { projectId: string }) => {
           </Button>
           <Button
             variant="outlined"
-            onClick={() => handleDeleteFiles(selectedFiles.map((f) => f.id))}
+            onClick={() =>
+              handleDeleteFiles(selectedFiles.map((f: any) => f.id))
+            }
             color="error"
             autoFocus
           >
@@ -691,7 +693,7 @@ const FileManager = ({ projectId }: { projectId: string }) => {
                 setMoveFileDestinationProject(e.target.value as string)
               }
             >
-              {projects.map((project) =>
+              {projects.map((project: any) =>
                 project.id !== projectId ? ( // Disable current project
                   <MenuItem key={project.id} value={project.id}>
                     {project.name}

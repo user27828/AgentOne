@@ -1,6 +1,7 @@
 /**
  * GPT chat page
  */
+/* eslint-disable react-refresh/only-export-components */
 import React, { useState, useCallback, useEffect, useRef } from "react";
 import { get, has, isString, last, size, trim } from "lodash";
 import {
@@ -13,7 +14,7 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
-  Grid2 as Grid,
+  Grid,
   IconButton,
   List,
   ListItem,
@@ -144,7 +145,7 @@ const Gpt = () => {
   const [query, setQuery] = useState<string>("");
   const [sending, setSending] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
-  const [result, setResult] = useState<{ [key: string]: any }>({});
+  const [result, setResult] = useState<any>({});
   const [models, setModels] = useState<string[]>([]);
   const [selectedModel, setSelectedModel] = useState<string>("");
   const [temperature, setTemperature] = useState<number>(0.7);
@@ -158,7 +159,7 @@ const Gpt = () => {
     false,
   );
   const [pendingHistory, setPendingHistory] = useState<boolean>(false);
-  const [cookies, setCookie] = useCookies(["settings"]);
+  const [cookies, setCookie] = useCookies();
   const [sidebarOpen, setSidebarOpen] = React.useState(false);
   const [showDebug, setShowDebug] = useState<boolean>(false);
   const [uuids, setUuids] = useState<{ [sessionUid: string]: string[] }>({}); // Hierarchical UUIDs
@@ -341,7 +342,7 @@ const Gpt = () => {
 
       // might use these to match the request
       //const _sessionUid = response.headers.get("X-Session-Uid") || "";
-      // @ts-ignore
+      // @ts-expect-error: Ignoring type check for header access
       const _chatUid = response.headers.get("X-Chat-Uid") || "";
       setStreamContent([]);
       setStreamContentString("");
@@ -408,7 +409,7 @@ const Gpt = () => {
         setResult(_result || {});
         return JSON.stringify(_result);
       }
-    } catch (error: any) {
+    } catch {
       setResult({
         content: `Request failure`,
       });
@@ -505,16 +506,16 @@ const Gpt = () => {
    * @component
    */
   const StreamingResultBox = () => {
-    let _activeHistoryIndex = 0;
     // Show the scroll-to-<top|bottom> arrows if there are this many chats
     const arrowChatThreshold = size(sessionChats) > 5;
-    if (!has(history, [activeHistoryIndex])) {
-      // Active history item index might have been deleted
-      _activeHistoryIndex = history.length - 1;
-      setActiveHistoryIndex(_activeHistoryIndex);
-    } else {
-      _activeHistoryIndex = activeHistoryIndex;
-    }
+    const _activeHistoryIndex = has(history, [activeHistoryIndex]) ? activeHistoryIndex : history.length - 1;
+
+    useEffect(() => {
+      if (!has(history, [activeHistoryIndex])) {
+        setActiveHistoryIndex(history.length - 1);
+      }
+    }, [history, activeHistoryIndex]);
+
     const lastHistoryItem = history[_activeHistoryIndex] || [];
     const lastHistoryChat = last(sessionChats) || {};
     const isDuplicate =
@@ -682,12 +683,11 @@ const Gpt = () => {
                             primaryTypographyProps={{ component: "div" }}
                             secondaryTypographyProps={{ component: "div" }}
                             primary={
-                              <ReactMarkdown
-                                className="results-box"
-                                remarkPlugins={[remarkGfm]}
-                              >
-                                {get(chat, "reply", "")}
-                              </ReactMarkdown>
+                              <div className="results-box">
+                                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                  {get(chat, "reply", "")}
+                                </ReactMarkdown>
+                              </div>
                             }
                             secondary={
                               <Stack
@@ -761,7 +761,9 @@ const Gpt = () => {
                     }}
                     onClick={scrollToTop}
                   >
-                    <ChevronRight style={{ transform: "rotate(-90deg)" }} />{" "}
+                    <ChevronRight
+                      style={{ transform: "rotate(-90deg)" }}
+                    />{" "}
                   </IconButton>
                 )
               }

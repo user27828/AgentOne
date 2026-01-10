@@ -134,7 +134,7 @@ const QueryBox: React.FC<QueryBoxProps> = ({
                   ),
                 },
               }}
-              inputRef={queryFieldRef}
+              inputRef={queryFieldRef as any}
             />
           </Tooltip>
         </form>

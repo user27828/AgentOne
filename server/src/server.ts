@@ -14,7 +14,7 @@ import ChatSessions from "./routes/chat-session";
 import Modelfile from "./routes/modelfile";
 import { db } from "./sqlite";
 
-dotenv.config({ path: path.resolve(__dirname, "../../.env") });
+dotenv.config({ path: path.resolve(__dirname, "../../.env"), quiet: true });
 
 const PORT = process.env.VITE_API_PORT || 3001; // Express server port
 export const uploadPath = "uploads/";

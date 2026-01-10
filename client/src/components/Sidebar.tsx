@@ -1,7 +1,7 @@
 /**
  * Sidebar
  */
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, Dispatch, SetStateAction } from "react";
 import { range, size } from "lodash";
 import {
   Box,
@@ -15,7 +15,7 @@ import {
   Drawer,
   FormControl,
   FormControlLabel,
-  Grid2 as Grid,
+  Grid,
   IconButton,
   InputLabel,
   List,
@@ -48,7 +48,7 @@ import { serverUrl } from "../../src/pages/gpt";
 import ModelfileManager from "./ModelfileManager";
 interface SidebarProps {
   models: string[];
-  setModels: (state: any) => void;
+  setModels: Dispatch<SetStateAction<string[]>>;
   selectedModel: string;
   temperature: number;
   stream: boolean;
@@ -65,7 +65,7 @@ interface SidebarProps {
   sidebarOpen: boolean;
   handleToggleSidebar: () => void;
   setShowDebug: (showDebug: boolean) => void;
-  handleModelChange: (event: SelectChangeEvent<any>) => void;
+  handleModelChange: (event: SelectChangeEvent<string>) => void;
   handleTemperatureChange: (event: Event, value: number | number[]) => void;
   handleStreamChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
 }
@@ -155,6 +155,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     event?: React.SyntheticEvent<HTMLElement, Event> | undefined,
     reason?: string,
   ) => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
     event && event.stopPropagation();
     if (reason && reason !== "backdropClick") {
       return;
@@ -167,6 +168,7 @@ const Sidebar: React.FC<SidebarProps> = ({
    * @param event
    */
   const handleRenameClick = (event?: React.MouseEvent<HTMLElement>) => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
     event && event.stopPropagation();
     setRenameDialogOpen(true);
     setNewName(history[renamingItemIndex!]?.name || "");
@@ -177,6 +179,7 @@ const Sidebar: React.FC<SidebarProps> = ({
    * Delete a chat session
    */
   const handleDeleteClick = async (event?: React.MouseEvent<HTMLElement>) => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
     event && event.stopPropagation();
 
     if (renamingItemIndex !== null) {
@@ -397,7 +400,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                       //onClose={handleMenuClose}
                       onClose={
                         handleMenuClose as (
-                          event: {},
+                          event: any,
                           reason: "backdropClick" | "escapeKeyDown",
                         ) => void
                       }

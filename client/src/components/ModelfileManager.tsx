@@ -1,7 +1,7 @@
 /**
  * Modelfile Management utility
  */
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, Dispatch, SetStateAction } from "react";
 import {
   Box,
   Button,
@@ -35,7 +35,7 @@ interface ModelfileManagerProps {
   open: boolean;
   onClose: () => void;
   models: string[];
-  setModels: (state: any) => void;
+  setModels: Dispatch<SetStateAction<string[]>>;
   selectedModel: string;
   onSave?: (modelfile: any) => void;
   onDelete?: (modelfileId: string) => void;
@@ -71,8 +71,7 @@ const ModelfileManager: React.FC<ModelfileManagerProps> = ({
   temperature = 0.7,
   stream = true,
 }) => {
-  // @ts-ignore
-  // eslint-disable-next-line
+  // @ts-expect-error: Ignoring type check for destructuring
   const [modelfileDialogOpen, setModelfileDialogOpen] = useState(false);
   const [baseModels, setBaseModels] = useState<string[]>([]);
   const [customModels, setCustomModels] = useState<any>(null);
@@ -96,6 +95,7 @@ const ModelfileManager: React.FC<ModelfileManagerProps> = ({
       setModelfileStreamContent("");
       setSavingModelfile(false);
       setBaseModels(models);
+      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
       models && loadCustomModels();
     }
   }, [open, selectedModelLocal, models]);
@@ -244,6 +244,7 @@ const ModelfileManager: React.FC<ModelfileManagerProps> = ({
       }
 
       const savedModelfile = await response.json();
+      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
       onSave && onSave(savedModelfile); // Callback
 
       if (stream && response.body) {
@@ -305,6 +306,7 @@ const ModelfileManager: React.FC<ModelfileManagerProps> = ({
       };
       _fetchModels();
     }
+    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
     onModelCreateUpdate && onModelCreateUpdate(selectedModelLocal);
   };
 
@@ -333,6 +335,7 @@ const ModelfileManager: React.FC<ModelfileManagerProps> = ({
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
+      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
       onDelete && onDelete(selectedModelfile.uid); // Callback
     } catch (error) {
       console.error("Error deleting modelfile:", error);

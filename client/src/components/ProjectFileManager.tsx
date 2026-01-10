@@ -3,13 +3,7 @@
  * Inclusion will display a button that would initiate the dialog
  */
 import { useState } from "react";
-import {
-  Dialog,
-  Grid2 as Grid,
-  Button,
-  Typography,
-  Divider,
-} from "@mui/material";
+import { Dialog, Grid, Button, Typography, Divider } from "@mui/material";
 import ProjectManager from "./ProjectManager";
 import FileManager from "./FileManager";
 export const serverUrl = `${import.meta.env.VITE_API_HOST}:${import.meta.env.VITE_API_PORT}`;
