@@ -508,7 +508,9 @@ const Gpt = () => {
   const StreamingResultBox = () => {
     // Show the scroll-to-<top|bottom> arrows if there are this many chats
     const arrowChatThreshold = size(sessionChats) > 5;
-    const _activeHistoryIndex = has(history, [activeHistoryIndex]) ? activeHistoryIndex : history.length - 1;
+    const _activeHistoryIndex = has(history, [activeHistoryIndex])
+      ? activeHistoryIndex
+      : history.length - 1;
 
     useEffect(() => {
       if (!has(history, [activeHistoryIndex])) {
