@@ -33,24 +33,24 @@
     "upgrade": "yarn upgrade-interactive"
   },
   "devDependencies": {
-    "@eslint/js": "^9.39.2",
-    "@types/lodash": "^4.17.23",
+    "@eslint/js": "^9.39.4",
+    "@types/lodash": "^4.17.24",
     "@types/mime-types": "^3.0.1",
     "concurrently": "^9.2.1",
-    "eslint": "^9.39.2",
+    "eslint": "^9.39.4",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.26",
-    "globals": "^17.0.0",
-    "nodemon": "^3.1.11",
-    "prettier": "^3.7.4",
+    "globals": "^17.4.0",
+    "nodemon": "^3.1.14",
+    "prettier": "^3.8.1",
     "typescript": "~5.9.3",
-    "typescript-eslint": "^8.52.0"
+    "typescript-eslint": "^8.57.0"
   },
   "dependencies": {
-    "axios": "^1.13.2",
-    "dayjs": "^1.11.19",
-    "dotenv": "^17.2.3",
-    "lodash": "^4.17.21",
+    "axios": "^1.13.6",
+    "dayjs": "^1.11.20",
+    "dotenv": "^17.3.1",
+    "lodash": "^4.17.23",
     "mime": "^4.1.0",
     "mime-types": "^3.0.2",
     "slugid": "^5.0.1"
