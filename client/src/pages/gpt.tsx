@@ -20,7 +20,6 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
-  Grid,
   IconButton,
   List,
   ListItem,
@@ -131,8 +130,34 @@ type SendQueryResult = {
   sessionUid: string;
   chatUid: string;
   reply: string;
+  createdAt?: string;
   payload?: any;
 };
+
+const DRAFT_SESSION_KEY = "__draft__";
+
+const chatTimestampFormatter = new Intl.DateTimeFormat(undefined, {
+  dateStyle: "medium",
+  timeStyle: "short",
+});
+
+const formatChatTimestamp = (value?: string): string => {
+  if (!value) {
+    return "";
+  }
+
+  const date = new Date(value);
+
+  return Number.isNaN(date.getTime())
+    ? ""
+    : chatTimestampFormatter.format(date);
+};
+
+const getSessionKey = (sessionUid?: string): string =>
+  sessionUid || DRAFT_SESSION_KEY;
+
+const hasMeaningfulChatText = (value?: string): boolean =>
+  trim(value || "").length > 0;
 
 const extractReplyContent = (payload: any): string => {
   if (has(payload, ["choices", 0, "message", "content"])) {
@@ -198,7 +223,7 @@ const Gpt = () => {
   const [streamContent, setStreamContent] = useState<any>([]);
   const [streamContentString, setStreamContentString] = useState<string>("");
   const [history, setHistory] = useState<SessionRecord[]>([]);
-  const [activeHistoryIndex, setActiveHistoryIndex] = useState<number>(0); // Track currently active history
+  const [activeHistoryIndex, setActiveHistoryIndex] = useState<number>(-1); // Track currently active history
   const [sessionChats, setSessionChats] = useState<ChatRecord[]>([]); // State for chats of the active session
   const [showHistoryDebug, setShowHistoryDebug] = useState<boolean | any>(
     false,
@@ -282,7 +307,9 @@ const Gpt = () => {
         setUuids((prevUuids) => ({ ...prevUuids, [savedSession.uid]: [] }));
       } else {
         setHistory((prevHistory) =>
-          prevHistory.map((s) => (s.uid === session.uid ? savedSession : s)),
+          prevHistory.map((s) =>
+            s.uid === session.uid ? { ...s, ...savedSession } : s,
+          ),
         );
       }
 
@@ -294,17 +321,21 @@ const Gpt = () => {
 
   const createNewHistoryItem = async (modelOverride?: string) => {
     const sessionModel = modelOverride || selectedModel || models[0] || "";
-    const newSession = {
-      name: "Chat on " + new Date().toLocaleString(),
-      model: sessionModel,
-      temperature: temperature,
-    };
-
-    try {
-      await saveHistory(newSession); // Use saveHistory to POST
-    } catch (error) {
-      console.error("Error creating new session:", error);
+    if (sessionModel && sessionModel !== selectedModel) {
+      setSelectedModel(sessionModel);
     }
+
+    setActiveHistoryIndex(-1);
+    setSessionChats([]);
+    setQuery("");
+    setResult({});
+    setStreamContent([]);
+    setStreamContentString("");
+    setShowHistoryDebug(false);
+    setUuids((prevUuids) => ({
+      ...prevUuids,
+      [DRAFT_SESSION_KEY]: [],
+    }));
   };
 
   const loadChatsForSession = async (sessionUid: string) => {
@@ -352,9 +383,10 @@ const Gpt = () => {
       }
 
       const trimmedQuery = trim(query);
-      const activeSession = history[activeHistoryIndex];
+      const activeSession =
+        activeHistoryIndex >= 0 ? history[activeHistoryIndex] : undefined;
 
-      if (!trimmedQuery || !selectedModel || !activeSession?.uid) {
+      if (!trimmedQuery || !selectedModel) {
         return;
       }
 
@@ -370,15 +402,31 @@ const Gpt = () => {
           selectedModel,
           temperature,
           stream,
-          activeSession.uid,
+          activeSession?.uid || "",
           controllerRef.current,
         );
 
         if (sendResult.ok) {
-          await saveHistory({
-            ...activeSession,
-            model: selectedModel,
-            temperature,
+          const refreshedHistory = await loadHistory();
+          const nextIndex = refreshedHistory.findIndex(
+            (session: SessionRecord) => session.uid === sendResult.sessionUid,
+          );
+
+          setHistory(refreshedHistory);
+          setActiveHistoryIndex(
+            nextIndex >= 0 ? nextIndex : refreshedHistory.length ? 0 : -1,
+          );
+          setUuids((prevUuids) => {
+            const draftChatUids = prevUuids[DRAFT_SESSION_KEY] || [];
+
+            return {
+              ...prevUuids,
+              [sendResult.sessionUid]:
+                draftChatUids.length > 0
+                  ? draftChatUids
+                  : prevUuids[sendResult.sessionUid] || [],
+              [DRAFT_SESSION_KEY]: [],
+            };
           });
           setQuery("");
         }
@@ -431,7 +479,9 @@ const Gpt = () => {
     const currentSessionUid = sessionUid
       ? sessionUid
       : history[activeHistoryIndex]?.uid || "";
+    const sessionKey = getSessionKey(currentSessionUid);
     const newChatUid = slugid.nice();
+    const createdAt = new Date().toISOString();
     let bufferedMessages: any[] = [];
     let bufferedContent = "";
 
@@ -475,10 +525,25 @@ const Gpt = () => {
       );
     };
 
+    const removePendingChatUid = () => {
+      setUuids((prev) => {
+        const existingChatUids = prev[sessionKey] || [];
+
+        if (!existingChatUids.includes(newChatUid)) {
+          return prev;
+        }
+
+        return {
+          ...prev,
+          [sessionKey]: existingChatUids.filter((uid) => uid !== newChatUid),
+        };
+      });
+    };
+
     try {
       setUuids((prev) => ({
         ...prev,
-        [currentSessionUid]: [...(prev[currentSessionUid] || []), newChatUid],
+        [sessionKey]: [...(prev[sessionKey] || []), newChatUid],
       }));
 
       const response = await fetch(`${serverUrl}/chat`, {
@@ -494,6 +559,10 @@ const Gpt = () => {
         }),
         signal: controller.signal,
       });
+
+      const resolvedSessionUid =
+        response.headers.get("X-Session-Uid") || currentSessionUid;
+      const resolvedChatUid = response.headers.get("X-Chat-Uid") || newChatUid;
 
       if (!response.ok) {
         const errorBody = await response.json().catch(() => null);
@@ -547,56 +616,70 @@ const Gpt = () => {
         cancelScheduledStreamFlush();
         flushBufferedStreamState();
 
+        if (!hasMeaningfulChatText(finalContent)) {
+          throw new Error("Received an empty response from Ollama");
+        }
+
         const payload = {
           message: { content: finalContent, role: "assistant" },
-          sessionUid: currentSessionUid,
-          chatUid: newChatUid,
+          sessionUid: resolvedSessionUid,
+          chatUid: resolvedChatUid,
         };
-
-        setSessionChats((prevChats) => [
-          ...prevChats,
-          {
-            uid: newChatUid,
-            query,
-            reply: finalContent,
-            role: "assistant",
-          },
-        ]);
-        setResult(payload);
-
-        return {
-          ok: true,
-          sessionUid: currentSessionUid,
-          chatUid: newChatUid,
-          reply: finalContent,
-          payload,
-        };
-      } else {
-        const payload = await response.json();
-        const resolvedChatUid = payload.chatUid || newChatUid;
-        const reply = extractReplyContent(payload);
 
         setSessionChats((prevChats) => [
           ...prevChats,
           {
             uid: resolvedChatUid,
             query,
+            reply: finalContent,
+            role: "assistant",
+            createdAt,
+          },
+        ]);
+        setResult(payload);
+
+        return {
+          ok: true,
+          sessionUid: resolvedSessionUid,
+          chatUid: resolvedChatUid,
+          reply: finalContent,
+          createdAt,
+          payload,
+        };
+      } else {
+        const payload = await response.json();
+        const responseChatUid = payload.chatUid || resolvedChatUid;
+        const responseSessionUid = payload.sessionUid || resolvedSessionUid;
+        const reply = extractReplyContent(payload);
+
+        if (!hasMeaningfulChatText(reply)) {
+          throw new Error("Received an empty response from Ollama");
+        }
+
+        setSessionChats((prevChats) => [
+          ...prevChats,
+          {
+            uid: responseChatUid,
+            query,
             reply,
             role: "assistant",
+            createdAt,
           },
         ]);
         setResult(payload || {});
 
         return {
           ok: true,
-          sessionUid: payload.sessionUid || currentSessionUid,
-          chatUid: resolvedChatUid,
+          sessionUid: responseSessionUid,
+          chatUid: responseChatUid,
           reply,
+          createdAt,
           payload,
         };
       }
     } catch (error) {
       cancelScheduledStreamFlush();
+      removePendingChatUid();
 
       if (error instanceof DOMException && error.name === "AbortError") {
         return {
@@ -631,6 +714,10 @@ const Gpt = () => {
     try {
       const currentSession = history[activeHistoryIndex];
 
+      if (!currentSession?.uid) {
+        return;
+      }
+
       const response = await fetch(
         `${serverUrl}/session/${currentSession.uid}/chat/delete`,
         {
@@ -648,6 +735,21 @@ const Gpt = () => {
       setSessionChats((prevChats) =>
         prevChats.filter((val) => val.uid !== uid),
       );
+
+      const refreshedHistory = await loadHistory();
+      const nextIndex = refreshedHistory.findIndex(
+        (session: SessionRecord) => session.uid === currentSession.uid,
+      );
+      const fallbackIndex = refreshedHistory.length
+        ? Math.min(activeHistoryIndex, refreshedHistory.length - 1)
+        : -1;
+
+      setHistory(refreshedHistory);
+      setActiveHistoryIndex(nextIndex >= 0 ? nextIndex : fallbackIndex);
+
+      if (nextIndex < 0 && fallbackIndex < 0) {
+        setSessionChats([]);
+      }
     } catch (error) {
       console.error("Error deleting chat message:", error);
     }
@@ -715,19 +817,24 @@ const Gpt = () => {
   const StreamingResultBox = () => {
     // Show the scroll-to-<top|bottom> arrows if there are this many chats
     const arrowChatThreshold = size(sessionChats) > 5;
-    const _activeHistoryIndex = has(history, [activeHistoryIndex])
-      ? activeHistoryIndex
-      : history.length - 1;
+    const hasActiveHistory =
+      activeHistoryIndex >= 0 && has(history, [activeHistoryIndex]);
+    const activeSession = hasActiveHistory
+      ? history[activeHistoryIndex]
+      : undefined;
 
     useEffect(() => {
+      if (activeHistoryIndex < 0) {
+        return;
+      }
+
       if (!has(history, [activeHistoryIndex])) {
-        setActiveHistoryIndex(history.length - 1);
+        setActiveHistoryIndex(history.length ? history.length - 1 : -1);
       }
     }, [history, activeHistoryIndex]);
 
-    const lastHistoryItem = history[_activeHistoryIndex];
     const lastHistoryChat = last(sessionChats);
-    const pendingChatUid = last(uuids[lastHistoryItem?.uid] || []);
+    const pendingChatUid = last(uuids[getSessionKey(activeSession?.uid)] || []);
     const pendingReply = stream
       ? streamContentString
       : extractReplyContent(result);
@@ -810,71 +917,89 @@ const Gpt = () => {
               {chatToDisplay.length > 0 &&
               size(chatToDisplay.filter((v) => size(v.query) > 0)) > 0 ? (
                 chatToDisplay.map((chat, index) => (
-                  <React.Fragment key={`chat-item-${index}`}>
+                  <React.Fragment key={`chat-item-${chat.uid || index}`}>
                     <ListItem sx={sxChatMeItem}>
                       <ListItemText
-                        primaryTypographyProps={{ component: "div" }}
-                        secondaryTypographyProps={{ component: "div" }}
+                        slotProps={{
+                          primary: { component: "div" },
+                          secondary: { component: "div" },
+                        }}
                         primary={chat.query}
                         secondary={
                           <Stack
                             direction="row"
                             spacing={1}
-                            justifyContent="right"
-                            alignItems="center"
+                            sx={{
+                              justifyContent: "space-between",
+                              alignItems: "center",
+                              flexWrap: "wrap",
+                            }}
                           >
-                            <small>{"(Me)"}&nbsp;</small>
-                            {index < size(sessionChats) && (
-                              <>
-                                <IconButton
-                                  size="small"
-                                  onClick={() =>
-                                    handleDeleteHistoryMessage(chat.uid)
-                                  }
-                                >
-                                  <Tooltip title="Delete this item pair">
-                                    <DeleteIcon color="warning" />
-                                  </Tooltip>
-                                </IconButton>
-                                <IconButton
-                                  size="small"
-                                  onClick={() =>
-                                    setShowHistoryDebug(get(history, [index]))
-                                  }
-                                >
-                                  <Tooltip title="Show debug data for this query/response pair">
-                                    <InfoIcon color="primary" />
-                                  </Tooltip>
-                                </IconButton>
-                                <IconButton
-                                  size="small"
-                                  onClick={() =>
-                                    handleCopy(chat.query, `query-${index}`)
-                                  }
-                                >
-                                  <Tooltip title="Copy this query text">
-                                    {isShowingSuccess(`query-${index}`) ? (
-                                      <ThumbUpIcon
-                                        sx={{ color: "green", opacity: 0.5 }}
-                                      />
-                                    ) : (
-                                      <CopyIcon color="primary" />
-                                    )}
-                                  </Tooltip>
-                                </IconButton>
-                                <IconButton
-                                  size="small"
-                                  onClick={() =>
-                                    size(chat.query) &&
-                                    moveQueryFocus(chat.query)
-                                  }
-                                >
-                                  <Tooltip title="Copy text to query editor">
-                                    <MoveDown color="primary" />
-                                  </Tooltip>
-                                </IconButton>
-                              </>
-                            )}
+                            <Box
+                              component="small"
+                              sx={{ opacity: 0.7, whiteSpace: "nowrap" }}
+                            >
+                              {formatChatTimestamp(chat.createdAt)}
+                            </Box>
+                            <Stack
+                              direction="row"
+                              spacing={1}
+                              sx={{
+                                justifyContent: "flex-end",
+                                alignItems: "center",
+                              }}
+                            >
+                              <small>{"(Me)"}&nbsp;</small>
+                              {index < size(sessionChats) && (
+                                <>
+                                  <IconButton
+                                    size="small"
+                                    onClick={() =>
+                                      handleDeleteHistoryMessage(chat.uid)
+                                    }
+                                  >
+                                    <Tooltip title="Delete this item pair">
+                                      <DeleteIcon color="warning" />
+                                    </Tooltip>
+                                  </IconButton>
+                                  <IconButton
+                                    size="small"
+                                    onClick={() => setShowHistoryDebug(chat)}
+                                  >
+                                    <Tooltip title="Show debug data for this query/response pair">
+                                      <InfoIcon color="primary" />
+                                    </Tooltip>
+                                  </IconButton>
+                                  <IconButton
+                                    size="small"
+                                    onClick={() =>
+                                      handleCopy(chat.query, `query-${index}`)
+                                    }
+                                  >
+                                    <Tooltip title="Copy this query text">
+                                      {isShowingSuccess(`query-${index}`) ? (
+                                        <ThumbUpIcon
+                                          sx={{ color: "green", opacity: 0.5 }}
+                                        />
+                                      ) : (
+                                        <CopyIcon color="primary" />
+                                      )}
+                                    </Tooltip>
+                                  </IconButton>
+                                  <IconButton
+                                    size="small"
+                                    onClick={() =>
+                                      size(chat.query) &&
+                                      moveQueryFocus(chat.query)
+                                    }
+                                  >
+                                    <Tooltip title="Copy text to query editor">
+                                      <MoveDown color="primary" />
+                                    </Tooltip>
+                                  </IconButton>
+                                </>
+                              )}
+                            </Stack>
                           </Stack>
                         }
                         sx={sxChatMeItemText}
@@ -890,8 +1015,10 @@ const Gpt = () => {
                       (chat.reply && ( // LLM response
                         <ListItem sx={sxGptItem}>
                           <ListItemText
-                            primaryTypographyProps={{ component: "div" }}
-                            secondaryTypographyProps={{ component: "div" }}
+                            slotProps={{
+                              primary: { component: "div" },
+                              secondary: { component: "div" },
+                            }}
                             primary={
                               <div className="results-box">
                                 <ReactMarkdown remarkPlugins={[remarkGfm]}>
@@ -903,26 +1030,47 @@ const Gpt = () => {
                               <Stack
                                 direction="row"
                                 spacing={1}
-                                justifyContent="left"
-                                alignItems="center"
+                                sx={{
+                                  justifyContent: "space-between",
+                                  alignItems: "center",
+                                  flexWrap: "wrap",
+                                }}
                               >
-                                <small>{"(LLM)"}</small>
-                                <IconButton
-                                  size="small"
-                                  onClick={() =>
-                                    handleCopy(chat.reply, `response-${index}`)
-                                  }
+                                <Stack
+                                  direction="row"
+                                  spacing={1}
+                                  sx={{
+                                    justifyContent: "flex-start",
+                                    alignItems: "center",
+                                  }}
                                 >
-                                  <Tooltip title="Copy this query text">
-                                    {isShowingSuccess(`response-${index}`) ? (
-                                      <ThumbUpIcon
-                                        sx={{ color: "green", opacity: 0.5 }}
-                                      />
-                                    ) : (
-                                      <CopyIcon color="primary" />
-                                    )}
-                                  </Tooltip>
-                                </IconButton>
+                                  <small>{"(LLM)"}</small>
+                                  <IconButton
+                                    size="small"
+                                    onClick={() =>
+                                      handleCopy(
+                                        chat.reply,
+                                        `response-${index}`,
+                                      )
+                                    }
+                                  >
+                                    <Tooltip title="Copy this query text">
+                                      {isShowingSuccess(`response-${index}`) ? (
+                                        <ThumbUpIcon
+                                          sx={{ color: "green", opacity: 0.5 }}
+                                        />
+                                      ) : (
+                                        <CopyIcon color="primary" />
+                                      )}
+                                    </Tooltip>
+                                  </IconButton>
+                                </Stack>
+                                <Box
+                                  component="small"
+                                  sx={{ opacity: 0.7, whiteSpace: "nowrap" }}
+                                >
+                                  {formatChatTimestamp(chat.createdAt)}
+                                </Box>
                               </Stack>
                             }
                             sx={sxGptItemText}
@@ -1064,7 +1212,8 @@ const Gpt = () => {
       setHistory(initialHistory);
 
       if (!initialHistory.length) {
-        await createNewHistoryItem(initialModel);
+        setActiveHistoryIndex(-1);
+        setSessionChats([]);
       } else {
         setActiveHistoryIndex(0);
         const initialChats = await loadChatsForSession(initialHistory[0].uid);
@@ -1080,16 +1229,24 @@ const Gpt = () => {
   //  Update sessionChats whenever the activeHistoryIndex changes
   useEffect(() => {
     const _loadSessionChats = async () => {
-      if (history.length > 0 && loading === false) {
-        const currentSession = history[activeHistoryIndex];
-
-        if (!currentSession?.uid) {
-          return;
-        }
-
-        const chats = await loadChatsForSession(currentSession.uid);
-        setSessionChats(chats);
+      if (loading) {
+        return;
       }
+
+      if (activeHistoryIndex < 0 || history.length === 0) {
+        setSessionChats([]);
+        return;
+      }
+
+      const currentSession = history[activeHistoryIndex];
+
+      if (!currentSession?.uid) {
+        setSessionChats([]);
+        return;
+      }
+
+      const chats = await loadChatsForSession(currentSession.uid);
+      setSessionChats(chats);
     };
     _loadSessionChats();
   }, [activeHistoryIndex, history, loading]);
@@ -1147,22 +1304,16 @@ const Gpt = () => {
         }}
       >
         {/* Scrollable Chat Area */}
-        <Grid
-          container
-          direction="column"
-          sx={{ flexGrow: 1, overflow: "hidden" }}
+        <Box
+          sx={{
+            flexGrow: 1,
+            overflowY: "auto",
+            marginBottom: 0.5,
+          }}
         >
-          <Grid
-            sx={{
-              flexGrow: 1,
-              overflowY: "auto",
-              marginBottom: 0.5,
-            }}
-          >
-            <StreamingResultBox />
-            <Box ref={streamingEndRef} />
-          </Grid>
-        </Grid>
+          <StreamingResultBox />
+          <Box ref={streamingEndRef} />
+        </Box>
         {/* QueryBox */}
         <Box
           sx={{

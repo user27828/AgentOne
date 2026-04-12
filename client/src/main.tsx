@@ -1,14 +1,7 @@
 /**
  * Main wrapper
  */
-import {
-  useMemo,
-  useState,
-  useEffect,
-  StrictMode,
-  lazy,
-  Suspense,
-} from "react";
+import { StrictMode, lazy, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import { createBrowserRouter, RouterProvider } from "react-router";
 import { CookiesProvider } from "react-cookie";
@@ -19,6 +12,8 @@ import {
   ThemeProvider,
   createTheme,
   IconButton,
+  Tooltip,
+  useColorScheme,
 } from "@mui/material";
 import {
   Brightness2 as DarkModeIcon,
@@ -28,6 +23,39 @@ import "./index.css";
 
 const Root = lazy(() => import("./pages/root.tsx"));
 const Gpt = lazy(() => import("./pages/gpt.tsx"));
+
+const theme = createTheme({
+  colorSchemes: {
+    light: true,
+    dark: true,
+  },
+  cssVariables: {
+    colorSchemeSelector: "class",
+  },
+  components: {
+    MuiContainer: {
+      styleOverrides: {
+        root: {
+          maxWidth: "100%",
+        },
+      },
+    },
+  },
+  typography: {
+    fontSize: 17,
+    fontFamily: [
+      "Ginto",
+      "ui-sans-serif",
+      "system-ui",
+      "sans-serif",
+      "Segoe UI Emoji",
+      "Segoe UI Symbol",
+      "Noto Color Emoji",
+      "Segoe UI Emoji",
+      "Apple Color Emoji",
+    ].join(","),
+  },
+});
 
 const router = createBrowserRouter([
   {
@@ -40,77 +68,50 @@ const router = createBrowserRouter([
   },
 ]);
 
+const ColorSchemeToggle = () => {
+  const { mode, systemMode, setMode } = useColorScheme();
+
+  if (!mode && !systemMode) {
+    return null;
+  }
+
+  const resolvedMode: "light" | "dark" =
+    mode === "dark"
+      ? "dark"
+      : mode === "light"
+        ? "light"
+        : systemMode || "light";
+  const nextMode = resolvedMode === "dark" ? "light" : "dark";
+
+  return (
+    <Tooltip title={`Switch to ${nextMode} mode`}>
+      <IconButton
+        aria-label={`Switch to ${nextMode} mode`}
+        sx={{ position: "absolute", top: 3, left: 2, zIndex: 10000 }}
+        onClick={() => setMode(nextMode)}
+        color="inherit"
+      >
+        {resolvedMode === "dark" ? <LightModeIcon /> : <DarkModeIcon />}
+      </IconButton>
+    </Tooltip>
+  );
+};
+
 /**
  * Main component with MUI light/dark mode toggle
  * @component
  * @returns {JSX.Element}
  */
-// eslint-disable-next-line react-refresh/only-export-components
-const App = () => {
-  // Saved theme preference
-  const savedTheme = localStorage.getItem("theme");
-  const [darkMode, setDarkMode] = useState(savedTheme === "dark");
-
-  const theme = useMemo(
-    () =>
-      createTheme({
-        components: {
-          MuiContainer: {
-            styleOverrides: {
-              root: {
-                maxWidth: "100%",
-              },
-            },
-          },
-        },
-        palette: {
-          mode: darkMode ? "dark" : "light",
-        },
-        typography: {
-          fontSize: 17,
-          fontFamily: [
-            "Ginto",
-            "ui-sans-serif",
-            "system-ui",
-            "sans-serif",
-            "Segoe UI Emoji",
-            "Segoe UI Symbol",
-            "Noto Color Emoji",
-            "Segoe UI Emoji",
-            "Apple Color Emoji",
-          ].join(","),
-        },
-      }),
-    [darkMode],
-  );
-
-  const toggleTheme = () => {
-    setDarkMode((prev) => {
-      const newTheme = !prev ? "dark" : "light"; // Switch themes?
-      localStorage.setItem("theme", newTheme); // Save to localStorage
-      return !prev; // Toggle theme state
-    });
-  };
-
-  /**
-   * On initial render, apply the saved theme
-   */
-  useEffect(() => {
-    if (savedTheme) {
-      setDarkMode(savedTheme === "dark");
-    }
-  }, [savedTheme]);
-
+export const App = () => {
   return (
-    <ThemeProvider theme={theme}>
+    <ThemeProvider
+      theme={theme}
+      defaultMode="system"
+      disableTransitionOnChange
+      noSsr
+    >
       <CssBaseline />
-      <IconButton
-        sx={{ position: "absolute", top: 3, left: 2, zIndex: 10000 }}
-        onClick={toggleTheme}
-        color="inherit"
-      >
-        {darkMode ? <LightModeIcon /> : <DarkModeIcon />}
-      </IconButton>
+      <ColorSchemeToggle />
       <Suspense
         fallback={
           <Box

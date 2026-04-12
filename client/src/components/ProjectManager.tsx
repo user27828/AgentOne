@@ -276,8 +276,10 @@ const ProjectManager = ({
         container
         spacing={2}
         direction="row"
-        justifyContent="space-between"
-        alignItems="center"
+        sx={{
+          justifyContent: "space-between",
+          alignItems: "center",
+        }}
       >
         <Grid size={2}>
           <Button variant="contained" size="small" onClick={handleAddProject}>
@@ -305,8 +307,10 @@ const ProjectManager = ({
                         container
                         size={12}
                         direction="row"
-                        alignItems="center"
-                        justifyContent="space-between"
+                        sx={{
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                        }}
                       >
                         <Grid>
                           <RadioGroup

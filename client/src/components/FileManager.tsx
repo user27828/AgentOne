@@ -25,6 +25,7 @@ import {
   Divider,
   Box,
   ListItemIcon,
+  Stack,
   Tooltip,
 } from "@mui/material";
 import {
@@ -352,24 +353,24 @@ const FileManager = ({ projectId }: { projectId: string }) => {
         container
         spacing={2}
         direction="row"
-        justifyContent="flex-start"
-        alignItems="flex-start"
-        sx={{ width: "100%" }}
+        sx={{
+          width: "100%",
+          justifyContent: "flex-start",
+          alignItems: "flex-start",
+        }}
       >
         <Grid size={3}>
-          <Grid
-            container
+          <Stack
             spacing={1}
-            direction="column"
-            justifyContent="flex-end"
             sx={{
               borderRight: "1px solid rgba(200,200,200,.3)",
               pr: 1,
               height: "100%",
               textAlign: "right",
+              justifyContent: "flex-end",
             }}
           >
-            <Grid size={12}>
+            <Box>
               <Divider textAlign="center" variant="inset">
                 Select
               </Divider>
@@ -395,8 +396,8 @@ const FileManager = ({ projectId }: { projectId: string }) => {
                   }}
                 />
               </IconButton>
-            </Grid>
-            <Grid size={12}>
+            </Box>
+            <Box>
               <Divider textAlign="center" variant="inset">
                 Actions
               </Divider>
@@ -410,8 +411,8 @@ const FileManager = ({ projectId }: { projectId: string }) => {
               >
                 Move File(s)
               </Button>
-            </Grid>
-            <Grid size={12}>
+            </Box>
+            <Box>
               <Button
                 startIcon={<DeleteIcon />}
                 aria-label="delete"
@@ -422,8 +423,8 @@ const FileManager = ({ projectId }: { projectId: string }) => {
               >
                 Delete File(s)
               </Button>
-            </Grid>
-            <Grid size={12} sx={{ pt: 2 }}>
+            </Box>
+            <Box sx={{ pt: 2 }}>
               <Divider textAlign="center" variant="inset">
                 Upload
               </Divider>
@@ -455,8 +456,8 @@ const FileManager = ({ projectId }: { projectId: string }) => {
                   ))}
                 </Box>
               )}
-            </Grid>
-          </Grid>
+            </Box>
+          </Stack>
         </Grid>
         <Grid size={9}>
           <List dense>

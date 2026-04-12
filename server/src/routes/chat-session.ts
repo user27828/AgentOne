@@ -16,6 +16,10 @@ const deleteFtsChat = db.prepare(
   "DELETE FROM chats_fts WHERE rowid = ? OR id = ?",
 );
 const deleteChatById = db.prepare("DELETE FROM chats WHERE id = ?");
+const countChatsForSession = db.prepare(
+  "SELECT COUNT(*) AS total FROM chats WHERE sessionId = ?",
+);
+const deleteSessionById = db.prepare("DELETE FROM sessions WHERE id = ?");
 
 const deleteChatRows = (chatRows: ChatIdRow[]) => {
   for (const { id } of chatRows) {
@@ -42,7 +46,8 @@ const listSessions = (req: Request, res: Response) => {
       FROM sessions s
       LEFT JOIN chats c ON s.id = c.sessionId
       WHERE s.isArchive = ?
-      GROUP BY s.id`,
+      GROUP BY s.id
+      HAVING COUNT(c.id) > 0`,
       )
       .all(isArchive);
 
@@ -278,13 +283,27 @@ router.post("/:sessionUid/chat/delete", (req, res): any => {
       )
       .all(session.id, ...chatIdsToDelete) as ChatIdRow[];
 
+    let deletedSession = false;
+
     const deleteChats = db.transaction(() => {
       deleteChatRows(chatRows);
+
+      const remainingChats = countChatsForSession.get(session.id) as {
+        total: number;
+      };
+
+      if (remainingChats.total === 0) {
+        deleteSessionById.run(session.id);
+        deletedSession = true;
+      }
     });
 
     deleteChats();
 
-    return res.json({ message: `Deleted ${chatRows.length} chats` });
+    return res.json({
+      message: `Deleted ${chatRows.length} chats`,
+      deletedSession,
+    });
   } catch (error) {
     console.error("Error deleting chats:", error);
     res.status(500).json({ error: "Failed to delete chats" });

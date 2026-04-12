@@ -3,7 +3,7 @@
  * Inclusion will display a button that would initiate the dialog
  */
 import { useState } from "react";
-import { Dialog, Grid, Button, Typography, Divider } from "@mui/material";
+import { Dialog, Button, Typography, Divider, Box, Stack } from "@mui/material";
 import ProjectManager from "./ProjectManager";
 import FileManager from "./FileManager";
 export const serverUrl = `${import.meta.env.VITE_API_HOST}:${import.meta.env.VITE_API_PORT}`;
@@ -30,15 +30,15 @@ const ProjectFileManager = ({ models }: { models: string[] }) => {
         Manage User Data
       </Button>
       <Dialog open={open} onClose={handleClose} fullWidth maxWidth="xl">
-        <Grid container direction="column" spacing={2} sx={{ padding: 2 }}>
-          <Grid size={12}>
+        <Stack spacing={2} sx={{ padding: 2 }}>
+          <Box>
             <ProjectManager
               models={models}
               onSelectProject={handleProjectSelect}
             />
             <Divider />
-          </Grid>
-          <Grid size={12}>
+          </Box>
+          <Box>
             {selectedProject && ( // Only show FileManager if a project is selected
               <FileManager projectId={selectedProject.id} />
             )}
@@ -47,13 +47,13 @@ const ProjectFileManager = ({ models }: { models: string[] }) => {
                 Select a project to manage files.
               </Typography>
             )}
-          </Grid>
-          <Grid size={12}>
+          </Box>
+          <Box>
             <Button variant="outlined" onClick={handleClose}>
               Close
             </Button>
-          </Grid>
-        </Grid>
+          </Box>
+        </Stack>
       </Dialog>
     </>
   );

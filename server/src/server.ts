@@ -35,6 +35,9 @@ app.use(express.json({ inflate: true, type: "application/json" }));
 app.use("/session", ChatSessions);
 app.use("/modelfile", Modelfile);
 
+const getMeaningfulText = (value: unknown): string =>
+  typeof value === "string" ? value.trim() : "";
+
 //- Helper Functions
 //------------------------------------------------------------------------------
 /**
@@ -52,7 +55,14 @@ const saveChatMessage = async ({
   response: any;
 }) => {
   try {
-    const { sessionUid = "", chatUid = "", query, model, ...rest } = request;
+    const {
+      sessionUid = "",
+      chatUid = "",
+      query,
+      model,
+      temperature = null,
+      ...rest
+    } = request;
     const hasChoices = has(response, ["choices", 0, "message", "content"]);
     const reply = hasChoices
       ? get(response, ["choices", 0, "message", "content"])
@@ -61,6 +71,12 @@ const saveChatMessage = async ({
       ? get(response, ["choices", 0, "message", "role"])
       : get(response, "message.role", "assistant");
     const createdAt = new Date().toISOString();
+    const trimmedQuery = getMeaningfulText(query);
+    const trimmedReply = getMeaningfulText(reply);
+
+    if (!trimmedQuery || !trimmedReply || !sessionUid) {
+      return;
+    }
 
     // Ensure session exists, create if not
     let session = sessionUid
@@ -72,20 +88,25 @@ const saveChatMessage = async ({
       const uid = slugid.nice();
       const insertResult = db
         .prepare(
-          `INSERT INTO sessions (uid, name, model, createdAt, updatedAt) 
-              VALUES (?, ?, ?, ?, ?)`,
+          `INSERT INTO sessions (uid, name, model, temperature, createdAt, updatedAt) 
+              VALUES (?, ?, ?, ?, ?, ?)`,
         )
-        .run(uid, `Chat on ${createdAt}`, model, createdAt, createdAt);
+        .run(
+          uid,
+          `Chat on ${new Date(createdAt).toLocaleString()}`,
+          model,
+          temperature,
+          createdAt,
+          createdAt,
+        );
       const sessionId = insertResult.lastInsertRowid; // Get new id of session
       session = db
         .prepare("SELECT * FROM sessions WHERE id = ?")
         .get(sessionId);
     } else {
-      // update session updatedAt
-      db.prepare("UPDATE sessions SET updatedAt = ? WHERE uid = ?").run(
-        createdAt,
-        sessionUid,
-      );
+      db.prepare(
+        "UPDATE sessions SET model = ?, temperature = ?, updatedAt = ? WHERE uid = ?",
+      ).run(model, temperature, createdAt, sessionUid);
     }
 
     const insertChat = db.prepare(
@@ -95,8 +116,8 @@ const saveChatMessage = async ({
     const chatInsertResult = insertChat.run(
       chatUid ? chatUid : slugid.nice(),
       get(session, "id", null),
-      query,
-      reply,
+      trimmedQuery,
+      trimmedReply,
       role,
       createdAt,
       JSON.stringify(rest),
@@ -109,8 +130,8 @@ const saveChatMessage = async ({
     insertFTS.run(
       chatInsertResult.lastInsertRowid,
       chatInsertResult.lastInsertRowid,
-      query,
-      reply,
+      trimmedQuery,
+      trimmedReply,
     );
   } catch (error) {
     console.error("Error saving chat message:", error);
@@ -167,7 +188,7 @@ app.get("/list-models", async (req, res) => {
  * @param {string} [req.body.system] - System message (overrides Modelfile, if exists)
  * @returns {mixed} - Object of results, or ReadableStream
  */
-app.post("/chat", async (req, res) => {
+app.post("/chat", async (req: Request, res: Response): Promise<void> => {
   const {
     query,
     model,
@@ -177,7 +198,28 @@ app.post("/chat", async (req, res) => {
     chatUid = "",
     system = null,
   } = req.body;
-  console.debug({ userQuery: query, model, temperature, stream, system });
+  const trimmedQuery = getMeaningfulText(query);
+  const trimmedModel = getMeaningfulText(model);
+  const resolvedSessionUid = sessionUid || slugid.nice();
+  const resolvedChatUid = chatUid || slugid.nice();
+
+  if (!trimmedQuery) {
+    res.status(400).json({ error: "Query is required" });
+    return;
+  }
+
+  if (!trimmedModel) {
+    res.status(400).json({ error: "Model is required" });
+    return;
+  }
+
+  console.debug({
+    userQuery: trimmedQuery,
+    model: trimmedModel,
+    temperature,
+    stream,
+    system,
+  });
   try {
     const response = await fetch(`${process.env.OLLAMA_API_URL}/api/chat`, {
       method: "POST",
@@ -185,8 +227,8 @@ app.post("/chat", async (req, res) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model,
-        messages: [{ role: "user", content: query }],
+        model: trimmedModel,
+        messages: [{ role: "user", content: trimmedQuery }],
         temperature: temperature || 0.7, // Default temperature
         stream: stream || false, // Default to non-streaming
         system,
@@ -207,8 +249,8 @@ app.post("/chat", async (req, res) => {
 
         res.writeHead(200, {
           "Content-Type": "text/plain",
-          "X-Session-Uid": sessionUid,
-          "X-Chat-Uid": chatUid,
+          "X-Session-Uid": resolvedSessionUid,
+          "X-Chat-Uid": resolvedChatUid,
         });
 
         const streamResponse = async () => {
@@ -217,7 +259,13 @@ app.post("/chat", async (req, res) => {
             if (done) {
               // saveChatMessage be here, otherwise awaiting streamResponse() would be blocking
               saveChatMessage({
-                request: req.body,
+                request: {
+                  ...req.body,
+                  query: trimmedQuery,
+                  model: trimmedModel,
+                  sessionUid: resolvedSessionUid,
+                  chatUid: resolvedChatUid,
+                },
                 response: {
                   ..._streamResult,
                   message: null,
@@ -245,17 +293,36 @@ app.post("/chat", async (req, res) => {
           res.end();
         };
         streamResponse();
+      } else {
+        throw new Error("Missing response body for streaming request");
       }
     } else {
       const result = await response.json();
-      saveChatMessage({ request: req.body, response: result });
-      res.json({ ...result, sessionUid, chatUid });
+      saveChatMessage({
+        request: {
+          ...req.body,
+          query: trimmedQuery,
+          model: trimmedModel,
+          sessionUid: resolvedSessionUid,
+          chatUid: resolvedChatUid,
+        },
+        response: result,
+      });
+      res.set({
+        "X-Session-Uid": resolvedSessionUid,
+        "X-Chat-Uid": resolvedChatUid,
+      });
+      res.json({
+        ...result,
+        sessionUid: resolvedSessionUid,
+        chatUid: resolvedChatUid,
+      });
     }
   } catch (error) {
     console.error("Error communicating with Ollama: ", error);
     res.set({
-      "X-Session-Uid": sessionUid,
-      "X-Chat-Uid": chatUid,
+      "X-Session-Uid": resolvedSessionUid,
+      "X-Chat-Uid": resolvedChatUid,
     });
     res.status(500).json({ error: "Failed to get response from Ollama" });
   }

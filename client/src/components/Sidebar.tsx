@@ -28,6 +28,7 @@ import {
   Select,
   SelectChangeEvent,
   Slider,
+  Stack,
   Switch,
   TextField,
   Tooltip,
@@ -207,7 +208,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           setActiveHistoryIndex(
             updatedHistory.length > 0
               ? Math.min(renamingItemIndex, updatedHistory.length - 1)
-              : 0,
+              : -1,
           );
         } else if (renamingItemIndex < activeHistoryIndex) {
           setActiveHistoryIndex(activeHistoryIndex - 1);
@@ -278,6 +279,7 @@ const Sidebar: React.FC<SidebarProps> = ({
       <Tooltip title="New Chat">
         <IconButton
           onClick={handleNewChat}
+          disabled={sending}
           sx={{
             position: "absolute",
             // Align against dark mode switcher
@@ -386,12 +388,14 @@ const Sidebar: React.FC<SidebarProps> = ({
                     >
                       <ListItemText
                         primary={item.name}
-                        primaryTypographyProps={{
-                          variant: "caption",
-                          sx: {
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
+                        slotProps={{
+                          primary: {
+                            variant: "caption",
+                            sx: {
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            },
                           },
                         }}
                       />
@@ -537,7 +541,7 @@ const Sidebar: React.FC<SidebarProps> = ({
       >
         <DialogTitle>Settings</DialogTitle>
         <DialogContent>
-          <Grid container direction="column" spacing={2}>
+          <Stack spacing={2}>
             <Grid container direction="row" size={12}>
               <Grid size={6}>
                 <FormControlLabel
@@ -574,7 +578,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                 These customized versions appear in your model list selection.
               </Grid>
             </Grid>
-          </Grid>
+          </Stack>
         </DialogContent>
         <DialogActions>
           <Button variant="contained" onClick={() => setSettingsOpen(false)}>

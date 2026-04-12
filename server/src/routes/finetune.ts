@@ -384,19 +384,21 @@ const getManifests = async ({
 }: {
   model: string[] | string | null;
 }): Promise<{ status: boolean; manifest: any }> => {
-  let modelNames = [];
-
   try {
+    const modelNames: string[] = [];
+
     if (typeof model === "string") {
-      modelNames = [model];
+      modelNames.push(model);
     } else if (Array.isArray(model)) {
-      modelNames = model;
+      modelNames.push(...model);
     } else {
       const modelDirs = await runOllamaCommand(`ls ${ollamaManifestDir}`);
-      modelNames = modelDirs
-        .trim()
-        .split("\n")
-        .filter((name) => name.trim() !== "");
+      modelNames.push(
+        ...modelDirs
+          .trim()
+          .split("\n")
+          .filter((name) => name.trim() !== ""),
+      );
     }
 
     let manifests: { [key: string]: any } = {};

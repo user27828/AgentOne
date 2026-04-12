@@ -14,7 +14,8 @@ import { isArray, isObject, keys, get } from "lodash";
  * @returns
  */
 export const preprocessText = (filePath: string): string => {
-  let fileContent = "";
+  let fileContent: string;
+
   try {
     fileContent = fs.readFileSync(filePath, "utf-8"); // Or specify encoding if needed
   } catch (error) {
