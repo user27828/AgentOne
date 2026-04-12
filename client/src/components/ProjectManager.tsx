@@ -38,8 +38,8 @@ import {
   RemoveRoad as TrainCancelIcon,
   LocalFireDepartment as DestroyIcon,
 } from "@mui/icons-material";
-import axios from "axios";
 import { serverUrl } from "./ProjectFileManager";
+import { fetchJson } from "../utils/http";
 
 // TODO: lower when developing this feature or in prod
 const jobStatusRefresh = 100000; // Refresh job status every x ms
@@ -80,8 +80,9 @@ const ProjectManager = ({
 
   const fetchProjects = async () => {
     try {
-      const response = await axios.get(`${serverUrl}/fileman/projects`);
-      const projectsData: any[] = response.data;
+      const projectsData = await fetchJson<any[]>(
+        `${serverUrl}/fileman/projects`,
+      );
       setProjects(projectsData);
       console.log("ProjectManager:fetchProjects()", projectsData);
 
@@ -110,11 +111,11 @@ const ProjectManager = ({
   // @ts-expect-error: Ignoring type check for function parameter
   const fetchFiles = async (projectId: string, func = (file: any) => {}) => {
     try {
-      const projectResponse = await axios.get(
+      const projectResponse = await fetchJson<{ files?: any[] }>(
         `${serverUrl}/fileman/project/${projectId}`,
       );
-      func(projectResponse.data.files || []);
-      return projectResponse.data.files;
+      func(projectResponse.files || []);
+      return projectResponse.files;
     } catch (error) {
       console.error("Error fetching files:", error);
     }
@@ -136,9 +137,9 @@ const ProjectManager = ({
   const handleConfirmDelete = async () => {
     if (projectToDelete) {
       try {
-        await axios.delete(
-          `${serverUrl}/fileman/project/${projectToDelete.id}`,
-        );
+        await fetchJson(`${serverUrl}/fileman/project/${projectToDelete.id}`, {
+          method: "DELETE",
+        });
         fetchProjects();
         setOpenConfirmDeleteDialog(false);
         setProjectToDelete(null);
@@ -178,12 +179,15 @@ const ProjectManager = ({
   const handleSaveProject = async () => {
     try {
       const isEdit = editProject && editProject?.id;
-      const _axiosMethod = isEdit ? "patch" : "post";
-      await axios[_axiosMethod](
+      await fetchJson(
         isEdit
           ? `${serverUrl}/fileman/project/${editProject.id}`
           : `${serverUrl}/fileman/project`,
-        editProject,
+        {
+          method: isEdit ? "PATCH" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(editProject),
+        },
       );
       setEditProject({});
       fetchProjects();
@@ -213,8 +217,12 @@ const ProjectManager = ({
     }
 
     try {
-      await axios.post(`${serverUrl}/finetune/${projectToTrain.id}/initiate`, {
-        model: trainingModel, // Pass the selected training model
+      await fetchJson(`${serverUrl}/finetune/${projectToTrain.id}/initiate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: trainingModel,
+        }),
       });
 
       // TODO: <handle success, show progress indicator>
@@ -231,7 +239,9 @@ const ProjectManager = ({
 
   const handleStopTraining = async (projectId: string) => {
     try {
-      await axios.post(`${serverUrl}/finetune/${projectId}/stop`);
+      await fetchJson(`${serverUrl}/finetune/${projectId}/stop`, {
+        method: "POST",
+      });
     } catch (error) {
       console.error("Error stopping training:", error);
     }
@@ -242,11 +252,11 @@ const ProjectManager = ({
     const intervalId = setInterval(async () => {
       try {
         const projectIdsString = projects.map((p: any) => p.id).join(","); // ID list
-        const response = await axios.get(
+        const response = await fetchJson<any[]>(
           `${serverUrl}/finetune/status/${projectIdsString}`,
         );
         const newStatus: any = {};
-        response.data.forEach((status: any) => {
+        response.forEach((status: any) => {
           newStatus[status.projectId] = status;
         });
 

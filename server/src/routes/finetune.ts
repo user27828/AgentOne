@@ -7,7 +7,6 @@ import { ServerResponse } from "http";
 import fs from "fs-extra";
 import path from "path";
 import { exec } from "child_process";
-import axios from "axios";
 import mime from "mime-types";
 import dayjs from "dayjs";
 //import * as transformers from "@huggingface/transformers";
@@ -528,16 +527,25 @@ router.post(
       };
 
       // Request to FastAPI
-      const trainingResponse = await axios.post(
+      const trainingResponse = await fetch(
         `http://localhost:8010/train/${projectId}/${model}`,
-        requestBody,
         {
+          method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
-          responseType: "stream", // Handle streaming responses
+          body: JSON.stringify(requestBody),
         },
       );
+
+      if (!trainingResponse.ok) {
+        const errorData = await trainingResponse.json().catch(() => null);
+        const errorMessage =
+          errorData?.detail || errorData?.error || trainingResponse.statusText;
+        throw new Error(
+          `FastAPI training request failed (${trainingResponse.status}): ${errorMessage}`,
+        );
+      }
 
       res.writeHead(200, {
         "Content-Type": "text/event-stream",
@@ -545,15 +553,7 @@ router.post(
         Connection: "keep-alive",
       });
 
-      if (trainingResponse.status >= 400) {
-        const errorData = trainingResponse.data;
-        const errorMessage = errorData?.detail || trainingResponse.statusText;
-        throw new Error(
-          `FastAPI training request failed (${trainingResponse.status}): ${errorMessage}`,
-        );
-      }
-
-      const reader = trainingResponse.data?.getReader();
+      const reader = trainingResponse.body?.getReader();
 
       if (!reader) {
         throw new Error("No response body to read");
@@ -672,7 +672,7 @@ router.post("/:projectId/stop", async (req, res) => {
  * Get Fine-tuning status
  * @param {string} req.query.projectId - Project UID
  */
-router.get("/status/:projectId?", (req: Request, res: Response): void => {
+const getFinetuningStatus = (req: Request, res: Response): void => {
   const projectIds = req.params.projectId
     ? req.params.projectId.split(",")
     : null;
@@ -698,13 +698,16 @@ router.get("/status/:projectId?", (req: Request, res: Response): void => {
     console.error("Error getting finetuning status:", error);
     res.status(500).json({ error: "Failed to get status" });
   }
-});
+};
+
+router.get("/status", getFinetuningStatus);
+router.get("/status/:projectId", getFinetuningStatus);
 
 /**
  * Get a list of model manifests from the docker image
  * @param {string} req.query.model - model name
  */
-router.get("/manifests/:model?", async (req: Request, res: Response) => {
+const getModelManifests = async (req: Request, res: Response) => {
   const requestedModel = req.params.model;
   const manifest = await getManifests({ model: requestedModel });
 
@@ -713,6 +716,9 @@ router.get("/manifests/:model?", async (req: Request, res: Response) => {
   } else {
     res.status(500).json({ error: "Failed to fetch manifests" });
   }
-});
+};
+
+router.get("/manifests", getModelManifests);
+router.get("/manifests/:model", getModelManifests);
 
 export default router;

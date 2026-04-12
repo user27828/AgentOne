@@ -1,11 +1,20 @@
 /**
  * Main wrapper
  */
-import { useMemo, useState, useEffect, StrictMode } from "react";
+import {
+  useMemo,
+  useState,
+  useEffect,
+  StrictMode,
+  lazy,
+  Suspense,
+} from "react";
 import { createRoot } from "react-dom/client";
 import { createBrowserRouter, RouterProvider } from "react-router";
 import { CookiesProvider } from "react-cookie";
 import {
+  Box,
+  CircularProgress,
   CssBaseline,
   ThemeProvider,
   createTheme,
@@ -16,8 +25,9 @@ import {
   WbSunny as LightModeIcon,
 } from "@mui/icons-material";
 import "./index.css";
-import Root from "./pages/root.tsx";
-import Gpt from "./pages/gpt.tsx";
+
+const Root = lazy(() => import("./pages/root.tsx"));
+const Gpt = lazy(() => import("./pages/gpt.tsx"));
 
 const router = createBrowserRouter([
   {
@@ -101,7 +111,22 @@ const App = () => {
       >
         {darkMode ? <LightModeIcon /> : <DarkModeIcon />}
       </IconButton>
-      <RouterProvider router={router} />
+      <Suspense
+        fallback={
+          <Box
+            sx={{
+              minHeight: "100vh",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <CircularProgress />
+          </Box>
+        }
+      >
+        <RouterProvider router={router} />
+      </Suspense>
     </ThemeProvider>
   );
 };

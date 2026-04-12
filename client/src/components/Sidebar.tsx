@@ -45,7 +45,7 @@ import {
   InterpreterMode as ModelfileIcon,
 } from "@mui/icons-material";
 import { serverUrl } from "../../src/pages/gpt";
-import ModelfileManager from "./ModelfileManager";
+const ModelfileManager = React.lazy(() => import("./ModelfileManager"));
 interface SidebarProps {
   models: string[];
   setModels: Dispatch<SetStateAction<string[]>>;
@@ -187,7 +187,7 @@ const Sidebar: React.FC<SidebarProps> = ({
 
       try {
         const response = await fetch(
-          `${serverUrl}/session/${sessionToDelete.id}`,
+          `${serverUrl}/session/${sessionToDelete.uid}`,
           {
             method: "DELETE",
           },
@@ -205,14 +205,18 @@ const Sidebar: React.FC<SidebarProps> = ({
         // Update activeHistoryIndex if necessary
         if (activeHistoryIndex === renamingItemIndex) {
           setActiveHistoryIndex(
-            updatedHistory.length > 0 ? updatedHistory.length - 1 : 0,
+            updatedHistory.length > 0
+              ? Math.min(renamingItemIndex, updatedHistory.length - 1)
+              : 0,
           );
+        } else if (renamingItemIndex < activeHistoryIndex) {
+          setActiveHistoryIndex(activeHistoryIndex - 1);
         }
 
         // Remove from uuids
         setUuids((prev: any) => {
           const newUuids = { ...prev };
-          delete newUuids[sessionToDelete.id];
+          delete newUuids[sessionToDelete.uid];
           return newUuids;
         });
       } catch (error) {
@@ -580,27 +584,31 @@ const Sidebar: React.FC<SidebarProps> = ({
       </Dialog>
 
       {/*  Modelfile Manager Dialog */}
-      <ModelfileManager
-        {...{
-          open: modelfileManagerOpen,
-          onClose: () => setModelfileManagerOpen(false),
-          models,
-          setModels,
-          selectedModel,
-          temperature,
-          stream,
-          onSave: (response) => {
-            console.log("Modelfile saved:", response);
-          },
-          onDelete: (response) => {
-            console.log("Modelfile deleted:", response);
-          },
-          onModelCreateUpdate: (model) => {
-            console.log("Modelfile Created/Updated:", model);
-            handleModelChange({ target: { value: model } } as any);
-          },
-        }}
-      />
+      {modelfileManagerOpen ? (
+        <React.Suspense fallback={null}>
+          <ModelfileManager
+            {...{
+              open: modelfileManagerOpen,
+              onClose: () => setModelfileManagerOpen(false),
+              models,
+              setModels,
+              selectedModel,
+              temperature,
+              stream,
+              onSave: (response) => {
+                console.log("Modelfile saved:", response);
+              },
+              onDelete: (response) => {
+                console.log("Modelfile deleted:", response);
+              },
+              onModelCreateUpdate: (model) => {
+                console.log("Modelfile Created/Updated:", model);
+                handleModelChange({ target: { value: model } } as any);
+              },
+            }}
+          />
+        </React.Suspense>
+      ) : null}
 
       {/* Rename Dialog */}
       <Dialog

@@ -8,6 +8,22 @@ import { db } from "../sqlite";
 
 const router = Router();
 
+type ChatIdRow = {
+  id: number;
+};
+
+const deleteFtsChat = db.prepare(
+  "DELETE FROM chats_fts WHERE rowid = ? OR id = ?",
+);
+const deleteChatById = db.prepare("DELETE FROM chats WHERE id = ?");
+
+const deleteChatRows = (chatRows: ChatIdRow[]) => {
+  for (const { id } of chatRows) {
+    deleteFtsChat.run(id, id);
+    deleteChatById.run(id);
+  }
+};
+
 //- Helper Functions
 //------------------------------------------------------------------------------
 
@@ -17,7 +33,7 @@ const router = Router();
  * Get a list of chat sessions and their metadata
  * @param {boolean} req.params.archive - 0 or 1 - Show archived sessions
  */
-router.get("/list/:archive?", (req, res) => {
+const listSessions = (req: Request, res: Response) => {
   const isArchive = req.params.archive === "archive" ? 1 : 0;
   try {
     const sessions = db
@@ -35,7 +51,10 @@ router.get("/list/:archive?", (req, res) => {
     console.error("Error getting sessions:", error);
     res.status(500).json({ error: "Failed to get sessions" });
   }
-});
+};
+
+router.get("/list", listSessions);
+router.get("/list/:archive", listSessions);
 
 /**
  * Create a new chat session
@@ -204,8 +223,24 @@ router.put("/:sessionUid", (req: Request, res: Response): any => {
 router.delete("/:sessionUid", (req, res): any => {
   const sessionUid = req.params.sessionUid;
   try {
-    db.prepare("DELETE FROM chats WHERE sessionId = ?").run(sessionUid);
-    db.prepare("DELETE FROM sessions WHERE id = ?").run(sessionUid);
+    const session = db
+      .prepare("SELECT id FROM sessions WHERE uid = ?")
+      .get(sessionUid) as { id: number } | undefined;
+
+    if (!session) {
+      return res.status(404).json({ error: "Session not found" });
+    }
+
+    const chatRows = db
+      .prepare("SELECT id FROM chats WHERE sessionId = ?")
+      .all(session.id) as ChatIdRow[];
+
+    const deleteSession = db.transaction(() => {
+      deleteChatRows(chatRows);
+      db.prepare("DELETE FROM sessions WHERE id = ?").run(session.id);
+    });
+
+    deleteSession();
     return res.json({ message: "Session and associated chats deleted" });
   } catch (error) {
     console.error("Error deleting session:", error);
@@ -228,22 +263,28 @@ router.post("/:sessionUid/chat/delete", (req, res): any => {
   }
 
   try {
-    const { id: sessionId } = db
+    const session = db
       .prepare("SELECT id FROM sessions WHERE uid = ?")
-      .get(sessionUid) as any;
-    if (sessionId) {
-      const deleteStmt = db.prepare(
-        "DELETE FROM chats WHERE sessionId = ? AND uid = ?",
-      );
-      let deletedCount = 0;
-      for (const chatId of chatIdsToDelete) {
-        const result = deleteStmt.run(sessionId, chatId);
-        deletedCount += result.changes;
-      }
-      return res.json({ message: `Deleted ${deletedCount} chats` });
-    } else {
-      return res.json({ error: "Session not found" });
+      .get(sessionUid) as { id: number } | undefined;
+
+    if (!session) {
+      return res.status(404).json({ error: "Session not found" });
     }
+
+    const placeholders = chatIdsToDelete.map(() => "?").join(", ");
+    const chatRows = db
+      .prepare(
+        `SELECT id FROM chats WHERE sessionId = ? AND uid IN (${placeholders})`,
+      )
+      .all(session.id, ...chatIdsToDelete) as ChatIdRow[];
+
+    const deleteChats = db.transaction(() => {
+      deleteChatRows(chatRows);
+    });
+
+    deleteChats();
+
+    return res.json({ message: `Deleted ${chatRows.length} chats` });
   } catch (error) {
     console.error("Error deleting chats:", error);
     res.status(500).json({ error: "Failed to delete chats" });

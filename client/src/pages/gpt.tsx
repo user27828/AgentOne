@@ -2,7 +2,13 @@
  * GPT chat page
  */
 /* eslint-disable react-refresh/only-export-components */
-import React, { useState, useCallback, useEffect, useRef } from "react";
+import React, {
+  useState,
+  useCallback,
+  useEffect,
+  useRef,
+  startTransition,
+} from "react";
 import { get, has, isString, last, size, trim } from "lodash";
 import {
   Box,
@@ -33,14 +39,15 @@ import {
 } from "@mui/icons-material";
 import { useCookies } from "react-cookie";
 import slugid from "slugid";
-import axios from "axios";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import Sidebar from "../components/Sidebar";
 import QueryBox from "../components/QueryBox";
-import CodeFormat from "../components/CodeFormat";
+import { fetchJson } from "../utils/http";
 import "../App.css";
 //import ProjectFileManager from "../components/ProjectFileManager";
+
+const CodeFormat = React.lazy(() => import("../components/CodeFormat"));
 
 export const serverUrl = `${import.meta.env.VITE_API_HOST}:${import.meta.env.VITE_API_PORT}`;
 
@@ -78,8 +85,7 @@ const sxGptItemText = {
  */
 export const apiListModels = async () => {
   try {
-    const response = await axios.get(`${serverUrl}/list-models`);
-    return response.data;
+    return await fetchJson<string[]>(`${serverUrl}/list-models`);
   } catch (error) {
     console.error("Error listing models:", error);
     return [];
@@ -96,6 +102,45 @@ interface UseCopyHandlerResult {
   handleCopy: (text: string, identifier?: string) => Promise<void>;
   isShowingSuccess: (identifier?: string) => boolean;
 }
+
+type SessionRecord = {
+  id: number;
+  uid: string;
+  name: string;
+  model: string;
+  temperature: number | null;
+  createdAt: string;
+  updatedAt: string;
+  totalChats?: number;
+};
+
+type ChatRecord = {
+  id?: number;
+  uid: string;
+  sessionId?: number;
+  query: string;
+  reply: string;
+  role?: string;
+  createdAt?: string;
+  jsonMeta?: string | null;
+};
+
+type SendQueryResult = {
+  ok: boolean;
+  aborted?: boolean;
+  sessionUid: string;
+  chatUid: string;
+  reply: string;
+  payload?: any;
+};
+
+const extractReplyContent = (payload: any): string => {
+  if (has(payload, ["choices", 0, "message", "content"])) {
+    return get(payload, ["choices", 0, "message", "content"], "");
+  }
+
+  return get(payload, "message.content", get(payload, "reply", ""));
+};
 
 /**
  * Hook for copy functionality
@@ -152,13 +197,12 @@ const Gpt = () => {
   const [stream, setStream] = useState<boolean>(true);
   const [streamContent, setStreamContent] = useState<any>([]);
   const [streamContentString, setStreamContentString] = useState<string>("");
-  const [history, setHistory] = useState<any[]>([]);
+  const [history, setHistory] = useState<SessionRecord[]>([]);
   const [activeHistoryIndex, setActiveHistoryIndex] = useState<number>(0); // Track currently active history
-  const [sessionChats, setSessionChats] = useState<any[]>([]); // State for chats of the active session
+  const [sessionChats, setSessionChats] = useState<ChatRecord[]>([]); // State for chats of the active session
   const [showHistoryDebug, setShowHistoryDebug] = useState<boolean | any>(
     false,
   );
-  const [pendingHistory, setPendingHistory] = useState<boolean>(false);
   const [cookies, setCookie] = useCookies();
   const [sidebarOpen, setSidebarOpen] = React.useState(false);
   const [showDebug, setShowDebug] = useState<boolean>(false);
@@ -170,10 +214,20 @@ const Gpt = () => {
 
   const queryFieldRef = useRef<HTMLInputElement | null>(null);
   const controllerRef = useRef<AbortController | null>(null);
+  const streamFlushFrameRef = useRef<number | null>(null);
   const streamingEndRef = useRef<null | HTMLDivElement>(null);
   const chatListRef = useRef<HTMLUListElement>(null);
 
   const { handleCopy, isShowingSuccess } = useCopyHandler();
+
+  useEffect(() => {
+    return () => {
+      controllerRef.current?.abort();
+      if (streamFlushFrameRef.current !== null) {
+        cancelAnimationFrame(streamFlushFrameRef.current);
+      }
+    };
+  }, []);
 
   /**
    * Load stored history from localStorage
@@ -197,7 +251,9 @@ const Gpt = () => {
    * Save/update history via endpoints
    * @param {object} history - History object to store
    */
-  const saveHistory = async (session: any) => {
+  const saveHistory = async (
+    session: Partial<SessionRecord> & { uid?: string },
+  ) => {
     try {
       const method = session.uid ? "PUT" : "POST";
       const url = session.uid
@@ -217,14 +273,14 @@ const Gpt = () => {
       const savedSession = await response.json();
 
       if (method === "POST") {
-        // New session
-        setHistory((prevHistory) => [...prevHistory, savedSession]);
-
-        // Update uuids with the new session ID and an empty array for its chats
-        setUuids((prevUuids) => ({ ...prevUuids, [savedSession.id]: [] }));
-        setActiveHistoryIndex(history.length); // New item is active
+        setHistory((prevHistory) => {
+          const nextHistory = [...prevHistory, savedSession];
+          setActiveHistoryIndex(nextHistory.length - 1);
+          return nextHistory;
+        });
+        setSessionChats([]);
+        setUuids((prevUuids) => ({ ...prevUuids, [savedSession.uid]: [] }));
       } else {
-        // Existing session updated
         setHistory((prevHistory) =>
           prevHistory.map((s) => (s.uid === session.uid ? savedSession : s)),
         );
@@ -236,13 +292,12 @@ const Gpt = () => {
     }
   };
 
-  const createNewHistoryItem = async () => {
+  const createNewHistoryItem = async (modelOverride?: string) => {
+    const sessionModel = modelOverride || selectedModel || models[0] || "";
     const newSession = {
       name: "Chat on " + new Date().toLocaleString(),
-      model: selectedModel,
+      model: sessionModel,
       temperature: temperature,
-      created_dt: new Date().toISOString(),
-      updated_dt: new Date().toISOString(),
     };
 
     try {
@@ -261,7 +316,14 @@ const Gpt = () => {
       }
 
       const { chats } = await response.json();
-      return chats || [];
+      const loadedChats = chats || [];
+
+      setUuids((prevUuids) => ({
+        ...prevUuids,
+        [sessionUid]: loadedChats.map((chat: ChatRecord) => chat.uid),
+      }));
+
+      return loadedChats;
     } catch (error) {
       console.error(`Error loading chats for session ${sessionUid}:`, error);
       return [];
@@ -271,7 +333,9 @@ const Gpt = () => {
   /**
    * Handle user chat query from QueryBox
    */
-  const handleQuery = (event: React.ChangeEvent<HTMLInputElement> | string) => {
+  const handleQuery = (
+    event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement> | string,
+  ) => {
     const value = isString(event) ? event : event.target.value;
     setQuery(value);
   };
@@ -280,11 +344,57 @@ const Gpt = () => {
    * Handler for Send button in QueryBox
    */
   const handleSend = useCallback(
-    (event: React.FormEvent) => {
-      event?.preventDefault();
+    async (event: React.SyntheticEvent) => {
+      event.preventDefault();
+
+      if (sending) {
+        return;
+      }
+
+      const trimmedQuery = trim(query);
+      const activeSession = history[activeHistoryIndex];
+
+      if (!trimmedQuery || !selectedModel || !activeSession?.uid) {
+        return;
+      }
+
+      controllerRef.current = new AbortController();
       setSending(true);
+      setStreamContent([]);
+      setStreamContentString("");
+      setResult({});
+
+      try {
+        const sendResult = await apiSendQuery(
+          trimmedQuery,
+          selectedModel,
+          temperature,
+          stream,
+          activeSession.uid,
+          controllerRef.current,
+        );
+
+        if (sendResult.ok) {
+          await saveHistory({
+            ...activeSession,
+            model: selectedModel,
+            temperature,
+          });
+          setQuery("");
+        }
+      } finally {
+        setSending(false);
+      }
     },
-    [query, selectedModel, temperature, stream],
+    [
+      activeHistoryIndex,
+      history,
+      query,
+      selectedModel,
+      sending,
+      stream,
+      temperature,
+    ],
   );
 
   /**
@@ -317,103 +427,198 @@ const Gpt = () => {
     stream: boolean,
     sessionUid: string,
     controller: AbortController,
-  ) => {
+  ): Promise<SendQueryResult> => {
+    const currentSessionUid = sessionUid
+      ? sessionUid
+      : history[activeHistoryIndex]?.uid || "";
+    const newChatUid = slugid.nice();
+    let bufferedMessages: any[] = [];
+    let bufferedContent = "";
+
+    const flushBufferedStreamState = () => {
+      streamFlushFrameRef.current = null;
+
+      if (!bufferedMessages.length && !bufferedContent) {
+        return;
+      }
+
+      const nextMessages = bufferedMessages;
+      const nextContent = bufferedContent;
+      bufferedMessages = [];
+      bufferedContent = "";
+
+      startTransition(() => {
+        if (nextMessages.length) {
+          setStreamContent((prev: any[]) => [...prev, ...nextMessages]);
+        }
+
+        if (nextContent) {
+          setStreamContentString((prev) => prev + nextContent);
+        }
+      });
+    };
+
+    const cancelScheduledStreamFlush = () => {
+      if (streamFlushFrameRef.current !== null) {
+        cancelAnimationFrame(streamFlushFrameRef.current);
+        streamFlushFrameRef.current = null;
+      }
+    };
+
+    const scheduleStreamFlush = () => {
+      if (streamFlushFrameRef.current !== null) {
+        return;
+      }
+
+      streamFlushFrameRef.current = requestAnimationFrame(
+        flushBufferedStreamState,
+      );
+    };
+
     try {
-      const currentSessionUid = sessionUid
-        ? sessionUid
-        : history[activeHistoryIndex]?.uid;
-      const newChatUid = slugid.nice();
       setUuids((prev) => ({
         ...prev,
         [currentSessionUid]: [...(prev[currentSessionUid] || []), newChatUid],
       }));
+
       const response = await fetch(`${serverUrl}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          query: trim(query),
+          query,
           model,
           temperature,
           stream,
           sessionUid: currentSessionUid,
+          chatUid: newChatUid,
         }),
         signal: controller.signal,
       });
 
-      // might use these to match the request
-      //const _sessionUid = response.headers.get("X-Session-Uid") || "";
-      // @ts-expect-error: Ignoring type check for header access
-      const _chatUid = response.headers.get("X-Chat-Uid") || "";
-      setStreamContent([]);
-      setStreamContentString("");
-      setResult({});
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => null);
+        throw new Error(
+          get(errorBody, "error", `HTTP error! status: ${response.status}`),
+        );
+      }
 
       if (stream) {
         const reader = response.body?.getReader();
-        const decoder = new TextDecoder("utf-8");
-        let finalContent = ""; // Full response string
 
-        const processChunk = (chunk: string) => {
+        if (!reader) {
+          throw new Error("Missing streaming response body");
+        }
+
+        const decoder = new TextDecoder("utf-8");
+        let finalContent = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+
+          if (done) {
+            break;
+          }
+
+          const chunk = decoder.decode(value, { stream: true });
           const lines = chunk.split("\n");
 
           for (const line of lines) {
-            if (line.trim()) {
-              try {
-                const data = JSON.parse(line);
-                setStreamContent((prev: any) => [...prev, data]);
-                const hasChoices = has(data, [
-                  "choices",
-                  0,
-                  "delta",
-                  "content",
-                ]);
-                finalContent += !hasChoices
-                  ? data.message.content
-                  : get(data, ["choices", 0, "delta", "content"]);
-                setStreamContentString((prev) => prev + data.message.content); // Real-time string for display
-              } catch (error) {
-                console.error("Error parsing JSON:", error, line);
-              }
+            if (!line.trim()) {
+              continue;
             }
-          }
-        };
-
-        const readStream = async (): Promise<void> => {
-          const { done, value } = (await reader?.read()) || {};
-          if (done) {
-            // Construct the complete chat object using finalContent
-            const newChat = { query, result: { content: finalContent } };
-            setSessionChats((prevChats) => [...prevChats, newChat]); // Update sessionChats directly
-            // Update session with the new chat array (for persistence)
-            const updatedSession = {
-              ...history[activeHistoryIndex],
-            };
 
             try {
-              await saveHistory(updatedSession);
-            } catch (e) {
-              console.error("Error saving session", e);
+              const data = JSON.parse(line);
+              const chunkContent = has(data, ["choices", 0, "delta", "content"])
+                ? get(data, ["choices", 0, "delta", "content"], "")
+                : get(data, "message.content", "");
+
+              bufferedMessages.push(data);
+              bufferedContent += chunkContent;
+              finalContent += chunkContent;
+            } catch (error) {
+              console.error("Error parsing JSON:", error, line);
             }
-            return;
           }
-          const chunk = decoder.decode(value, { stream: true });
-          processChunk(chunk);
-          await readStream(); // Recurse
+
+          scheduleStreamFlush();
+        }
+
+        cancelScheduledStreamFlush();
+        flushBufferedStreamState();
+
+        const payload = {
+          message: { content: finalContent, role: "assistant" },
+          sessionUid: currentSessionUid,
+          chatUid: newChatUid,
         };
 
-        await readStream();
-        setResult(streamContent);
-        return finalContent; // Return the resulting string
+        setSessionChats((prevChats) => [
+          ...prevChats,
+          {
+            uid: newChatUid,
+            query,
+            reply: finalContent,
+            role: "assistant",
+          },
+        ]);
+        setResult(payload);
+
+        return {
+          ok: true,
+          sessionUid: currentSessionUid,
+          chatUid: newChatUid,
+          reply: finalContent,
+          payload,
+        };
       } else {
-        const _result = await response.json();
-        setResult(_result || {});
-        return JSON.stringify(_result);
+        const payload = await response.json();
+        const resolvedChatUid = payload.chatUid || newChatUid;
+        const reply = extractReplyContent(payload);
+
+        setSessionChats((prevChats) => [
+          ...prevChats,
+          {
+            uid: resolvedChatUid,
+            query,
+            reply,
+            role: "assistant",
+          },
+        ]);
+        setResult(payload || {});
+
+        return {
+          ok: true,
+          sessionUid: payload.sessionUid || currentSessionUid,
+          chatUid: resolvedChatUid,
+          reply,
+          payload,
+        };
       }
-    } catch {
+    } catch (error) {
+      cancelScheduledStreamFlush();
+
+      if (error instanceof DOMException && error.name === "AbortError") {
+        return {
+          ok: false,
+          aborted: true,
+          sessionUid: currentSessionUid,
+          chatUid: newChatUid,
+          reply: "",
+        };
+      }
+
       setResult({
         content: `Request failure`,
       });
-      return false;
+      console.error("Error sending chat query:", error);
+
+      return {
+        ok: false,
+        sessionUid: currentSessionUid,
+        chatUid: newChatUid,
+        reply: "",
+      };
     }
   };
 
@@ -440,7 +645,9 @@ const Gpt = () => {
       }
 
       // Update the history state after successful deletion
-      setSessionChats(sessionChats.filter((val) => val.uid !== uid));
+      setSessionChats((prevChats) =>
+        prevChats.filter((val) => val.uid !== uid),
+      );
     } catch (error) {
       console.error("Error deleting chat message:", error);
     }
@@ -518,29 +725,30 @@ const Gpt = () => {
       }
     }, [history, activeHistoryIndex]);
 
-    const lastHistoryItem = history[_activeHistoryIndex] || [];
-    const lastHistoryChat = last(sessionChats) || {};
-    const isDuplicate =
+    const lastHistoryItem = history[_activeHistoryIndex];
+    const lastHistoryChat = last(sessionChats);
+    const pendingChatUid = last(uuids[lastHistoryItem?.uid] || []);
+    const pendingReply = stream
+      ? streamContentString
+      : extractReplyContent(result);
+    const isDuplicate = Boolean(
       query &&
       lastHistoryChat &&
-      query === get(lastHistoryChat, "query") &&
-      last(uuids[lastHistoryItem.sessionUid]) ===
-        get(lastHistoryChat, "chatUid");
+      query === lastHistoryChat.query &&
+      pendingChatUid === lastHistoryChat.uid,
+    );
 
     // Combine history and current query for display, filtering out the duplicate last message if needed
     const chatToDisplay = [
       ...(sessionChats || []),
       sending && !isDuplicate
         ? {
+            uid: pendingChatUid || "pending-chat",
             query,
-            reply: stream ? streamContentString : result,
-            chatUid: last(
-              uuids[get(history, [activeHistoryIndex, "sessionUid", "chat"])] ||
-                [],
-            ),
+            reply: pendingReply,
           }
         : null, // Last duplicate filtered out below
-    ].filter(Boolean);
+    ].filter(Boolean) as ChatRecord[];
     //console.log({ chatToDisplay });
 
     const scrollToBottom = () => {
@@ -702,7 +910,7 @@ const Gpt = () => {
                                 <IconButton
                                   size="small"
                                   onClick={() =>
-                                    handleCopy(chat.query, `response-${index}`)
+                                    handleCopy(chat.reply, `response-${index}`)
                                   }
                                 >
                                   <Tooltip title="Copy this query text">
@@ -772,28 +980,32 @@ const Gpt = () => {
             </List>
           </CardContent>
         </Card>
-        <Dialog
-          scroll="paper"
-          open={showHistoryDebug !== false}
-          onClose={() => setShowHistoryDebug(false)}
-        >
-          <DialogTitle>History Item Information</DialogTitle>
-          <DialogContent dividers={true} className="debug-DialogContent">
-            <h4>Query and response</h4>
-            <CodeFormat
-              code={JSON.stringify(showHistoryDebug, null, 2)}
-              language="json"
-            />
-          </DialogContent>
-          <DialogActions>
-            <Button
-              variant="outlined"
-              onClick={() => setShowHistoryDebug(false)}
-            >
-              Close
-            </Button>
-          </DialogActions>
-        </Dialog>
+        {showHistoryDebug !== false ? (
+          <Dialog
+            scroll="paper"
+            open={showHistoryDebug !== false}
+            onClose={() => setShowHistoryDebug(false)}
+          >
+            <DialogTitle>History Item Information</DialogTitle>
+            <DialogContent dividers={true} className="debug-DialogContent">
+              <h4>Query and response</h4>
+              <React.Suspense fallback={null}>
+                <CodeFormat
+                  code={JSON.stringify(showHistoryDebug, null, 2)}
+                  language="json"
+                />
+              </React.Suspense>
+            </DialogContent>
+            <DialogActions>
+              <Button
+                variant="outlined"
+                onClick={() => setShowHistoryDebug(false)}
+              >
+                Close
+              </Button>
+            </DialogActions>
+          </Dialog>
+        ) : null}
       </>
     );
   };
@@ -806,17 +1018,19 @@ const Gpt = () => {
   const DebuggingResultDialog = () => {
     const debugResult = { result, streamContent };
 
-    return (
+    return showDebug ? (
       <Dialog open={showDebug} fullWidth={true} maxWidth="xl">
         <DialogTitle>Debug Data</DialogTitle>
         <DialogContent>
           <h4>LLM Response</h4>
           <Card>
             <CardContent>
-              <CodeFormat
-                code={result ? JSON.stringify(debugResult, null, 2) : ""}
-                language="json"
-              />
+              <React.Suspense fallback={null}>
+                <CodeFormat
+                  code={result ? JSON.stringify(debugResult, null, 2) : ""}
+                  language="json"
+                />
+              </React.Suspense>
             </CardContent>
           </Card>
         </DialogContent>
@@ -826,53 +1040,41 @@ const Gpt = () => {
           </Button>
         </DialogActions>
       </Dialog>
-    );
+    ) : null;
   };
 
   /**
    * Get the initial list of available LLMs from the Ollama service
    */
   useEffect(() => {
-    let availableModels: string[] = [];
-    const _fetchModels = async () => {
-      availableModels = await apiListModels();
-      setModels(availableModels);
-    };
-    _fetchModels();
-
-    // Load settings from cookies
     const savedSettings = cookies.settings || {};
-    setTemperature(savedSettings.temperature || 0.7);
-    setStream(savedSettings.stream || stream);
-    setSidebarOpen(savedSettings.sidebarOpen || sidebarOpen);
-    setSelectedModel(
-      savedSettings.model || selectedModel || availableModels[0],
-    );
+    setTemperature(savedSettings.temperature ?? 0.7);
+    setStream(savedSettings.stream ?? true);
+    setSidebarOpen(savedSettings.sidebarOpen ?? false);
 
-    const _fetchHistory = async () => {
-      const initialHistory = await loadHistory(); // Load sessions as history
+    const initializePage = async () => {
+      const [availableModels, initialHistory] = await Promise.all([
+        apiListModels(),
+        loadHistory(),
+      ]);
+      const initialModel = savedSettings.model || availableModels[0] || "";
+
+      setModels(availableModels);
+      setSelectedModel(initialModel);
       setHistory(initialHistory);
 
       if (!initialHistory.length) {
-        await createNewHistoryItem(); // Create initial session
+        await createNewHistoryItem(initialModel);
       } else {
-        const initialUuids: Record<string, string[]> = {};
-        const session = initialHistory[0];
-        const chats = await loadChatsForSession(session.uid);
-        initialUuids[session.uid] = (chats || []).map((chat: any) => chat.uid);
-
-        setUuids(initialUuids);
-
-        setActiveHistoryIndex(0); // First item from DB
-
-        // Load chats for the initially active session
+        setActiveHistoryIndex(0);
         const initialChats = await loadChatsForSession(initialHistory[0].uid);
         setSessionChats(initialChats);
       }
+
       setLoading(false);
     };
 
-    _fetchHistory();
+    initializePage();
   }, []);
 
   //  Update sessionChats whenever the activeHistoryIndex changes
@@ -880,102 +1082,24 @@ const Gpt = () => {
     const _loadSessionChats = async () => {
       if (history.length > 0 && loading === false) {
         const currentSession = history[activeHistoryIndex];
+
+        if (!currentSession?.uid) {
+          return;
+        }
+
         const chats = await loadChatsForSession(currentSession.uid);
         setSessionChats(chats);
       }
     };
     _loadSessionChats();
-  }, [activeHistoryIndex, history]);
+  }, [activeHistoryIndex, history, loading]);
 
   // Scroll to the bottom of the StreamingResultBox on updates
   useEffect(() => {
-    streamingEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [sending, streamContent, result]);
-
-  // Send the API chat request once there's a query and sending status.
-  useEffect(() => {
-    if (query && sending) {
-      controllerRef.current = new AbortController();
-      console.log({ SendingQuery: query, selectedModel, temperature, stream });
-
-      // Clear previous results *BEFORE* sending the new query
-      setStreamContent([]);
-      setStreamContentString("");
-      setResult({}); // Clear for both stream and non-stream cases
-
-      apiSendQuery(
-        query,
-        selectedModel,
-        temperature,
-        stream,
-        history[activeHistoryIndex]?.sessionUid,
-        controllerRef.current,
-      ).then(() => {
-        setSending(false);
-        setPendingHistory(true);
-      });
-    }
-  }, [sending, query, selectedModel, temperature, stream, activeHistoryIndex]);
-
-  /**
-   * Save to history
-   */
-  useEffect(() => {
-    if (
-      pendingHistory &&
-      sending === false &&
-      query &&
-      ((stream && size(streamContent) && size(streamContentString)) ||
-        (!stream && size(result)))
-    ) {
-      const currentSession = history[activeHistoryIndex];
-      const updatedSession = {
-        ...currentSession,
-        model: selectedModel,
-        temperature,
-        updated_dt: new Date().toISOString(),
-      };
-
-      saveHistory(updatedSession)
-        .then((updatedSession) => {
-          // Use the updated session returned by saveHistory
-          setPendingHistory(false);
-          setQuery("");
-
-          const chatUid = last(uuids[updatedSession.id]);
-
-          setUuids((prevUuids) => ({
-            ...prevUuids,
-            [updatedSession.id]: [
-              ...(prevUuids[updatedSession.id] || []),
-              chatUid,
-            ],
-          }));
-
-          // Update the history state with the returned savedSession
-          setHistory((prevHistory) =>
-            prevHistory.map((s) =>
-              s.id === updatedSession.id ? updatedSession : s,
-            ),
-          );
-        })
-        .catch((error) => {
-          console.error("Error updating history", error);
-        });
-    }
-  }, [
-    stream,
-    sending,
-    result,
-    streamContent,
-    streamContentString,
-    pendingHistory,
-    uuids,
-    query,
-    activeHistoryIndex,
-    selectedModel,
-    temperature,
-  ]);
+    streamingEndRef.current?.scrollIntoView({
+      behavior: sending ? "auto" : "smooth",
+    });
+  }, [sending, streamContentString, result]);
 
   return (
     <Box

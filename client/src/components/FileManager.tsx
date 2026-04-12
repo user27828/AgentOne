@@ -37,14 +37,20 @@ import {
   DoneAll as SelectAllIcon,
   Deselect as DeselectAllIcon,
 } from "@mui/icons-material";
-import axios from "axios";
 import { serverUrl } from "./ProjectFileManager";
 import { get, size, toInteger } from "lodash";
+import { fetchBlob, fetchJson, isHttpError } from "../utils/http";
 import {
   MAX_INLINE_FILE_SIZE,
   allowedUploadTypes,
   inlineViewable,
 } from "../../../server/src/utils/file-types";
+
+type UploadProgressState = {
+  files: Array<{
+    originalName: string;
+  }>;
+};
 
 /**
  * File Manager
@@ -56,7 +62,8 @@ const FileManager = ({ projectId }: { projectId: string }) => {
   const [files, setFiles] = useState<any[]>([]);
   const [editFile, setEditFile] = useState<any>(null);
   const [openEditDialog, setOpenEditDialog] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState<any>(null);
+  const [uploadProgress, setUploadProgress] =
+    useState<UploadProgressState | null>(null);
   const [moveFileDialogOpen, setMoveFileDialogOpen] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<any[]>([]);
   const [openConfirmDeleteDialog, setOpenConfirmDeleteDialog] = useState(false);
@@ -69,8 +76,10 @@ const FileManager = ({ projectId }: { projectId: string }) => {
   useEffect(() => {
     const fetchProjects = async () => {
       try {
-        const response = await axios.get(`${serverUrl}/fileman/projects`);
-        setProjects(response.data);
+        const projectList = await fetchJson<any[]>(
+          `${serverUrl}/fileman/projects`,
+        );
+        setProjects(projectList);
       } catch (error) {
         console.error("Error fetching projects: ", error);
       }
@@ -80,10 +89,10 @@ const FileManager = ({ projectId }: { projectId: string }) => {
 
   const fetchFiles = useCallback(async () => {
     try {
-      const projectResponse = await axios.get(
+      const projectResponse = await fetchJson<{ files?: any[] }>(
         `${serverUrl}/fileman/project/${projectId}`,
       );
-      setFiles(projectResponse.data.files || []);
+      setFiles(projectResponse.files || []);
     } catch (error) {
       console.error("Error fetching files:", error);
     }
@@ -143,69 +152,15 @@ const FileManager = ({ projectId }: { projectId: string }) => {
         formData.append("files", files[i]);
       }
 
-      const response = await axios.post(
-        `${serverUrl}/fileman/project/${projectId}/files-progress`,
-        formData,
+      setUploadProgress({
+        files: files.map((file) => ({ originalName: file.name })),
+      });
+
+      const response = await fetchJson<{ files: any[] }>(
+        `${serverUrl}/fileman/project/${projectId}/files`,
         {
-          onUploadProgress: (progressEvent: any) => {
-            let progressUpdates: any = null;
-
-            try {
-              if (get(progressEvent, "event.currentTarget.response")) {
-                // Split response into individual lines, filtering out empty lines:
-                const lines = progressEvent.event.currentTarget.response
-                  .split("\n")
-                  .filter((line: string) => line.trim() !== "");
-
-                for (const line of lines) {
-                  try {
-                    const parsed = JSON.parse(line);
-                    progressUpdates = parsed; // last valid parsed line
-                  } catch (e) {
-                    // Ignore invalid JSON lines (this is how the progress events are sent from the server)
-                    console.warn(
-                      "Invalid JSON received from server. Ignoring.",
-                      e,
-                      line,
-                    );
-                  }
-                }
-
-                if (progressUpdates) {
-                  setUploadProgress((prevProgress: any) => {
-                    if (!progressUpdates) {
-                      return prevProgress; // Do nothing if parsing failed
-                    }
-
-                    const updatedFiles = progressUpdates.files.map(
-                      (updatedFile: any) => {
-                        const existingFile = (prevProgress?.files || []).find(
-                          (f: any) =>
-                            f.originalName === updatedFile.originalName,
-                        );
-
-                        if (existingFile) {
-                          return {
-                            ...existingFile,
-                            progress: updatedFile.progress,
-                          }; // Update existing file progress
-                        }
-
-                        return updatedFile; // Add new file if not present
-                      },
-                    );
-
-                    return { files: updatedFiles };
-                  });
-                }
-              }
-            } catch (parseError) {
-              console.error(
-                "JSON parsing error in onUploadProgress:",
-                parseError,
-              );
-            }
-          },
+          method: "POST",
+          body: formData,
         },
       );
 
@@ -216,6 +171,8 @@ const FileManager = ({ projectId }: { projectId: string }) => {
     } catch (error) {
       console.error("Error uploading file: ", error);
       setUploadProgress(null);
+    } finally {
+      event.target.value = "";
     }
   };
 
@@ -236,9 +193,13 @@ const FileManager = ({ projectId }: { projectId: string }) => {
 
   const handleSaveFile = async () => {
     try {
-      await axios.patch(
+      await fetchJson(
         `${serverUrl}/fileman/project/${projectId}/files/${editFile.id}`,
-        editFile,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(editFile),
+        },
       );
       fetchFiles();
       handleCloseEditDialog();
@@ -253,24 +214,20 @@ const FileManager = ({ projectId }: { projectId: string }) => {
    */
   const handleDeleteFiles = async (fileIds: string[]) => {
     try {
-      await axios.delete(`${serverUrl}/fileman/project/${projectId}/files`, {
-        data: { fileIds },
+      await fetchJson(`${serverUrl}/fileman/project/${projectId}/files`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fileIds }),
       });
       fetchFiles();
       setOpenConfirmDeleteDialog(false);
       setSelectedFiles([]);
-    } catch (error: any) {
+    } catch (error) {
       console.error("Error deleting files:", error);
-      if (error.response && error.response.status === 207) {
-        // Handle partial failures (some files deleted, some not)
-        const { errors } = error.response.data;
-        // <display or log the errors>
-        errors.forEach((err: any) =>
+      if (isHttpError(error) && Array.isArray(get(error.data, "errors"))) {
+        get(error.data, "errors", []).forEach((err: any) =>
           console.warn(`Failed to delete file ${err.fileId}: ${err.error}`),
         );
-        // TODO: let user know results
-      } else {
-        // Other delete failure issues
       }
     }
   };
@@ -326,19 +283,20 @@ const FileManager = ({ projectId }: { projectId: string }) => {
     }
 
     try {
-      await axios.post(`${serverUrl}/fileman/project/${projectId}/files/move`, {
-        newProjectId: moveFileDestinationProject,
-        fileIds: selectedFiles.map((f: any) => f.id), // array of file IDs
+      await fetchJson(`${serverUrl}/fileman/project/${projectId}/files/move`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          newProjectId: moveFileDestinationProject,
+          fileIds: selectedFiles.map((f: any) => f.id),
+        }),
       });
       fetchFiles();
       handleCloseMoveFileDialog();
-    } catch (error: any) {
+    } catch (error) {
       console.error("Error moving files: ", error);
-      if (error.response && error.response.status === 207) {
-        // Partial failure
-        const { errors } = error.response.data;
-        // TODO display which files failed (errors array)
-        console.warn("Some files failed to move:", errors);
+      if (isHttpError(error) && Array.isArray(get(error.data, "errors"))) {
+        console.warn("Some files failed to move:", get(error.data, "errors"));
       }
     }
   };
@@ -348,15 +306,14 @@ const FileManager = ({ projectId }: { projectId: string }) => {
     download: boolean = false, // True for download, false for inline
   ) => {
     try {
-      const response = await axios.get(
+      const fileUrl = new URL(
         `${serverUrl}/fileman/project/${projectId}/files/${file.id}`,
-        {
-          params: { download },
-          responseType: "blob",
-        },
       );
+      fileUrl.searchParams.set("download", String(download));
 
-      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const fileBlob = await fetchBlob(fileUrl);
+
+      const url = window.URL.createObjectURL(fileBlob);
       const link = document.createElement("a");
       link.href = url;
 
@@ -491,12 +448,9 @@ const FileManager = ({ projectId }: { projectId: string }) => {
                   {uploadProgress.files.map((file: any, i: number) => (
                     <div key={i}>
                       <Typography variant="body2">
-                        Uploading file {file.originalName}: {file.progress}%
+                        Uploading file {file.originalName}...
                       </Typography>
-                      <LinearProgress
-                        variant="determinate"
-                        value={file.progress}
-                      />
+                      <LinearProgress variant="indeterminate" />
                     </div>
                   ))}
                 </Box>

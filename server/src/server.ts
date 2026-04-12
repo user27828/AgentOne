@@ -7,7 +7,6 @@ import dotenv from "dotenv";
 import { get, has, last } from "lodash";
 import slugid from "slugid";
 import cors from "cors";
-import axios from "axios";
 //import FineTune from "./routes/finetune";
 //import FileMan from "./routes/fileman";
 import ChatSessions from "./routes/chat-session";
@@ -105,9 +104,14 @@ const saveChatMessage = async ({
 
     // Update chats_fts virtual table
     const insertFTS = db.prepare(
-      `INSERT INTO chats_fts (id, query, reply) VALUES (?, ?, ?)`,
+      `INSERT INTO chats_fts (rowid, id, query, reply) VALUES (?, ?, ?, ?)`,
     );
-    insertFTS.run(chatInsertResult.lastInsertRowid, query, reply);
+    insertFTS.run(
+      chatInsertResult.lastInsertRowid,
+      chatInsertResult.lastInsertRowid,
+      query,
+      reply,
+    );
   } catch (error) {
     console.error("Error saving chat message:", error);
   }
@@ -128,10 +132,20 @@ app.get("/", (req, res) => {
  */
 app.get("/list-models", async (req, res) => {
   try {
-    const response = await axios.get(`${process.env.OLLAMA_API_URL}/api/tags`, {
+    const response = await fetch(`${process.env.OLLAMA_API_URL}/api/tags`, {
       headers: { "Content-Type": "application/json" },
     });
-    const models = response.data.models.map((model: any) =>
+
+    if (!response.ok) {
+      throw new Error(
+        `Ollama tags request failed with status ${response.status}`,
+      );
+    }
+
+    const data = (await response.json()) as {
+      models?: Array<{ name: string }>;
+    };
+    const models = (data.models || []).map((model) =>
       model.name.replace(":latest", ""),
     );
     res.json(models);

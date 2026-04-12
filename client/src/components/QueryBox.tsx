@@ -1,7 +1,7 @@
 /**
  * Chat query box
  */
-import React, { useState, useEffect } from "react";
+import React from "react";
 import { size } from "lodash";
 import {
   Card,
@@ -16,8 +16,10 @@ import { Cancel as CancelIcon, Send as SendIcon } from "@mui/icons-material";
 interface QueryBoxProps {
   query: string;
   queryFieldRef?: any;
-  handleQuery: (event: React.ChangeEvent<HTMLInputElement> | string) => void;
-  handleSend: (event: React.FormEvent) => void;
+  handleQuery: (
+    event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement> | string,
+  ) => void;
+  handleSend: (event: React.SyntheticEvent) => void | Promise<void>;
   handleCancel: () => void;
   models: string[];
   selectedModel: string;
@@ -50,12 +52,6 @@ const QueryBox: React.FC<QueryBoxProps> = ({
   loading,
   sending,
 }) => {
-  const [localQuery, setLocalQuery] = useState<string>("");
-
-  // No need to send this outside of this component
-  const handleLocalQuery = (event: React.ChangeEvent<HTMLInputElement>) =>
-    setLocalQuery(event.target.value);
-
   /**
    * Handle the "Enter" button as submit
    * @param {object} event
@@ -63,18 +59,9 @@ const QueryBox: React.FC<QueryBoxProps> = ({
   const handleKeyPress = (event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
-      handleLocalSend(event); // Prevent the default "Enter" behavior to avoid newline in TextField
+      handleSend(event); // Prevent the default "Enter" behavior to avoid newline in TextField
     }
   };
-
-  const handleLocalSend = (event: React.FormEvent) => {
-    event.preventDefault();
-    handleQuery(localQuery);
-    handleSend(event);
-    setLocalQuery("");
-  };
-
-  useEffect(() => setLocalQuery(query), [query]);
 
   return (
     <Card>
@@ -93,8 +80,8 @@ const QueryBox: React.FC<QueryBoxProps> = ({
             <TextField
               multiline
               maxRows={5}
-              value={localQuery}
-              onChange={handleLocalQuery}
+              value={query}
+              onChange={handleQuery}
               onKeyDown={handleKeyPress}
               placeholder={
                 !sending ? "Enter a query" : "(Waiting for response...)"
@@ -109,7 +96,7 @@ const QueryBox: React.FC<QueryBoxProps> = ({
                         <IconButton
                           component="label"
                           role={undefined}
-                          onClick={handleLocalSend}
+                          onClick={handleSend}
                           disabled={sending || !size(models)}
                         >
                           <SendIcon
