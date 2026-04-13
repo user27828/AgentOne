@@ -10,6 +10,12 @@ const router = Router();
 
 type ChatIdRow = {
   id: number;
+  uid?: string;
+};
+
+type SessionRow = {
+  id: number;
+  jsonMeta: string | null;
 };
 
 const deleteFtsChat = db.prepare(
@@ -20,6 +26,101 @@ const countChatsForSession = db.prepare(
   "SELECT COUNT(*) AS total FROM chats WHERE sessionId = ?",
 );
 const deleteSessionById = db.prepare("DELETE FROM sessions WHERE id = ?");
+const deleteSessionMemoryBySessionId = db.prepare(
+  "DELETE FROM session_memory WHERE sessionId = ?",
+);
+const updateSessionJsonMetaById = db.prepare(
+  "UPDATE sessions SET jsonMeta = ?, updatedAt = ? WHERE id = ?",
+);
+
+const parseJsonObject = (value: unknown): Record<string, unknown> => {
+  try {
+    if (typeof value === "string" && value) {
+      const parsedValue = JSON.parse(value) as unknown;
+
+      return parsedValue &&
+        typeof parsedValue === "object" &&
+        !Array.isArray(parsedValue)
+        ? (parsedValue as Record<string, unknown>)
+        : {};
+    }
+
+    return value && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
+};
+
+const buildManualSessionTitleJsonMeta = (
+  existingJsonMeta: unknown,
+): string | null => {
+  const nextMeta = parseJsonObject(existingJsonMeta);
+  nextMeta.titleMeta = {
+    source: "manual",
+    firstChatUid: null,
+  };
+
+  return Object.keys(nextMeta).length ? JSON.stringify(nextMeta) : null;
+};
+
+const pruneForgottenChatUids = (
+  jsonMeta: unknown,
+  deletedChatUids: string[],
+): string | null => {
+  if (!deletedChatUids.length) {
+    return typeof jsonMeta === "string" ? jsonMeta : null;
+  }
+
+  const nextMeta = parseJsonObject(jsonMeta);
+  const rawMemoryControls = nextMeta.memoryControls;
+
+  if (
+    !rawMemoryControls ||
+    typeof rawMemoryControls !== "object" ||
+    Array.isArray(rawMemoryControls)
+  ) {
+    return Object.keys(nextMeta).length ? JSON.stringify(nextMeta) : null;
+  }
+
+  const deletedChatUidSet = new Set(deletedChatUids);
+  const currentForgottenChatUids = Array.isArray(
+    (rawMemoryControls as { forgottenChatUids?: unknown }).forgottenChatUids,
+  )
+    ? (
+        (rawMemoryControls as { forgottenChatUids?: unknown })
+          .forgottenChatUids as unknown[]
+      )
+        .map((uid) => String(uid || "").trim())
+        .filter(Boolean)
+    : [];
+  const nextForgottenChatUids = currentForgottenChatUids.filter(
+    (uid) => !deletedChatUidSet.has(uid),
+  );
+  const currentPinnedFacts = Array.isArray(
+    (rawMemoryControls as { pinnedFacts?: unknown }).pinnedFacts,
+  )
+    ? (
+        (rawMemoryControls as { pinnedFacts?: unknown })
+          .pinnedFacts as unknown[]
+      )
+        .map((fact) => String(fact || "").trim())
+        .filter(Boolean)
+    : [];
+
+  if (currentPinnedFacts.length || nextForgottenChatUids.length) {
+    nextMeta.memoryControls = {
+      ...rawMemoryControls,
+      pinnedFacts: currentPinnedFacts,
+      forgottenChatUids: nextForgottenChatUids,
+    };
+  } else {
+    delete nextMeta.memoryControls;
+  }
+
+  return Object.keys(nextMeta).length ? JSON.stringify(nextMeta) : null;
+};
 
 const deleteChatRows = (chatRows: ChatIdRow[]) => {
   for (const { id } of chatRows) {
@@ -47,7 +148,8 @@ const listSessions = (req: Request, res: Response) => {
       LEFT JOIN chats c ON s.id = c.sessionId
       WHERE s.isArchive = ?
       GROUP BY s.id
-      HAVING COUNT(c.id) > 0`,
+      HAVING COUNT(c.id) > 0
+      ORDER BY s.updatedAt ASC, s.id ASC`,
       )
       .all(isArchive);
 
@@ -82,6 +184,9 @@ router.post("/", (req, res) => {
   const uid = slugid.nice(); // Generate a new UID
 
   const createdAt = new Date().toISOString();
+  const nextJsonMeta = name
+    ? buildManualSessionTitleJsonMeta(jsonMeta)
+    : jsonMeta;
 
   try {
     const insertResult = db
@@ -98,7 +203,7 @@ router.post("/", (req, res) => {
         createdAt,
         modelFileId,
         templateId,
-        jsonMeta,
+        nextJsonMeta,
       );
 
     const newSession = db
@@ -126,7 +231,11 @@ router.get("/:sessionUid", (req: Request, res: Response): any => {
       return res.status(404).json({ error: "Session not found" });
     }
     const chats = session.id
-      ? db.prepare("SELECT * FROM chats WHERE sessionId = ?").all(session.id)
+      ? db
+          .prepare(
+            "SELECT * FROM chats WHERE sessionId = ? ORDER BY createdAt ASC, id ASC",
+          )
+          .all(session.id)
       : [];
     res.json({ session, chats });
   } catch (error) {
@@ -168,6 +277,11 @@ router.put("/:sessionUid", (req: Request, res: Response): any => {
 
     let updateFields = [];
     let updateValues = [];
+    const nextJsonMeta = name
+      ? buildManualSessionTitleJsonMeta(
+          jsonMeta !== undefined ? jsonMeta : session.jsonMeta,
+        )
+      : jsonMeta;
 
     if (name) {
       updateFields.push("name = ?");
@@ -193,9 +307,9 @@ router.put("/:sessionUid", (req: Request, res: Response): any => {
       updateFields.push("isArchive = ?");
       updateValues.push(isArchive);
     } // Check for undefined
-    if (jsonMeta) {
+    if (name || jsonMeta) {
       updateFields.push("jsonMeta = ?");
-      updateValues.push(jsonMeta);
+      updateValues.push(nextJsonMeta);
     }
 
     if (updateFields.length === 0) {
@@ -229,8 +343,8 @@ router.delete("/:sessionUid", (req, res): any => {
   const sessionUid = req.params.sessionUid;
   try {
     const session = db
-      .prepare("SELECT id FROM sessions WHERE uid = ?")
-      .get(sessionUid) as { id: number } | undefined;
+      .prepare("SELECT id, jsonMeta FROM sessions WHERE uid = ?")
+      .get(sessionUid) as SessionRow | undefined;
 
     if (!session) {
       return res.status(404).json({ error: "Session not found" });
@@ -242,6 +356,7 @@ router.delete("/:sessionUid", (req, res): any => {
 
     const deleteSession = db.transaction(() => {
       deleteChatRows(chatRows);
+      deleteSessionMemoryBySessionId.run(session.id);
       db.prepare("DELETE FROM sessions WHERE id = ?").run(session.id);
     });
 
@@ -269,8 +384,8 @@ router.post("/:sessionUid/chat/delete", (req, res): any => {
 
   try {
     const session = db
-      .prepare("SELECT id FROM sessions WHERE uid = ?")
-      .get(sessionUid) as { id: number } | undefined;
+      .prepare("SELECT id, jsonMeta FROM sessions WHERE uid = ?")
+      .get(sessionUid) as SessionRow | undefined;
 
     if (!session) {
       return res.status(404).json({ error: "Session not found" });
@@ -279,7 +394,7 @@ router.post("/:sessionUid/chat/delete", (req, res): any => {
     const placeholders = chatIdsToDelete.map(() => "?").join(", ");
     const chatRows = db
       .prepare(
-        `SELECT id FROM chats WHERE sessionId = ? AND uid IN (${placeholders})`,
+        `SELECT id, uid FROM chats WHERE sessionId = ? AND uid IN (${placeholders})`,
       )
       .all(session.id, ...chatIdsToDelete) as ChatIdRow[];
 
@@ -287,6 +402,18 @@ router.post("/:sessionUid/chat/delete", (req, res): any => {
 
     const deleteChats = db.transaction(() => {
       deleteChatRows(chatRows);
+      deleteSessionMemoryBySessionId.run(session.id);
+
+      if (chatRows.length) {
+        updateSessionJsonMetaById.run(
+          pruneForgottenChatUids(
+            session.jsonMeta,
+            chatRows.map((chatRow) => chatRow.uid || "").filter(Boolean),
+          ),
+          new Date().toISOString(),
+          session.id,
+        );
+      }
 
       const remainingChats = countChatsForSession.get(session.id) as {
         total: number;

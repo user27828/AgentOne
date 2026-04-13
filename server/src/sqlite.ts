@@ -27,6 +27,14 @@ db.prepare(
       query TEXT, reply TEXT, role TEXT, createdAt DATETIME, jsonMeta TEXT)`,
 ).run();
 
+db.prepare(
+  `CREATE TABLE IF NOT EXISTS session_memory (
+    sessionId INTEGER PRIMARY KEY,
+    jsonState TEXT,
+    updatedAt DATETIME
+  )`,
+).run();
+
 // -Chat FTS virtual table
 // SELECT * FROM chats WHERE id IN (SELECT id FROM chats_fts WHERE chats_fts MATCH 'what did you say about my dog?!');
 // or

@@ -5,6 +5,7 @@
 import React, {
   useState,
   useCallback,
+  useDeferredValue,
   useEffect,
   useRef,
   startTransition,
@@ -21,9 +22,12 @@ import {
   DialogContent,
   DialogTitle,
   IconButton,
+  ListItemIcon,
   List,
   ListItem,
   ListItemText,
+  Menu,
+  MenuItem,
   SelectChangeEvent,
   Stack,
   Tooltip,
@@ -33,6 +37,7 @@ import {
   ContentCopy as CopyIcon,
   Delete as DeleteIcon,
   Info as InfoIcon,
+  MoreVert,
   MoveDown,
   ThumbUp as ThumbUpIcon,
 } from "@mui/icons-material";
@@ -91,6 +96,72 @@ export const apiListModels = async () => {
   }
 };
 
+const apiGetChatMemoryDiagnostics = async (
+  sessionUid: string,
+  chatMemorySettings: ChatMemorySettings,
+  query: string,
+): Promise<ChatMemoryDiagnostics> =>
+  fetchJson<ChatMemoryDiagnostics>(`${serverUrl}/chat-memory-diagnostics`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sessionUid,
+      chatMemory: chatMemorySettings,
+      query,
+    }),
+  });
+
+const apiRebuildSessionMemory = async (
+  sessionUid: string,
+): Promise<SessionMemoryControlResponse> =>
+  fetchJson<SessionMemoryControlResponse>(
+    `${serverUrl}/session/${sessionUid}/memory/rebuild`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    },
+  );
+
+const apiUpdateForgottenTurn = async (
+  sessionUid: string,
+  chatUid: string,
+  forgotten: boolean,
+): Promise<SessionMemoryControlResponse> =>
+  fetchJson<SessionMemoryControlResponse>(
+    `${serverUrl}/session/${sessionUid}/memory/turn`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chatUid, forgotten }),
+    },
+  );
+
+const apiPinSessionFact = async (
+  sessionUid: string,
+  fact: string,
+): Promise<SessionMemoryControlResponse> =>
+  fetchJson<SessionMemoryControlResponse>(
+    `${serverUrl}/session/${sessionUid}/memory/pin`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fact }),
+    },
+  );
+
+const apiUnpinSessionFact = async (
+  sessionUid: string,
+  fact: string,
+): Promise<SessionMemoryControlResponse> =>
+  fetchJson<SessionMemoryControlResponse>(
+    `${serverUrl}/session/${sessionUid}/memory/unpin`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fact }),
+    },
+  );
+
 /**
  * types for useCopyHandler()
  */
@@ -111,6 +182,7 @@ type SessionRecord = {
   createdAt: string;
   updatedAt: string;
   totalChats?: number;
+  jsonMeta?: string | null;
 };
 
 type ChatRecord = {
@@ -124,6 +196,16 @@ type ChatRecord = {
   jsonMeta?: string | null;
 };
 
+type SessionTitleSource = "placeholder" | "heuristic" | "llm" | "manual";
+
+type ChatResponseMetadata = {
+  sessionUid: string;
+  chatUid: string;
+  sessionTitle?: string;
+  sessionTitleSource?: SessionTitleSource;
+  isInitialSessionTitle?: true;
+};
+
 type SendQueryResult = {
   ok: boolean;
   aborted?: boolean;
@@ -131,7 +213,181 @@ type SendQueryResult = {
   chatUid: string;
   reply: string;
   createdAt?: string;
+  sessionTitle?: string;
+  sessionTitleSource?: SessionTitleSource;
+  isInitialSessionTitle?: true;
   payload?: any;
+};
+
+type ChatMemorySettings = {
+  verbatimHistoryChats: number;
+  verbatimHistoryTokens: number;
+  summaryTokens: number;
+  summaryQueryTokens: number;
+  summaryReplyTokens: number;
+};
+
+type SessionMemoryControls = {
+  pinnedFacts: string[];
+  forgottenChatUids: string[];
+};
+
+type SessionMemoryControlResponse = {
+  sessionUid: string;
+  controls: SessionMemoryControls;
+  rebuilt?: boolean;
+  chatUid?: string;
+  forgotten?: boolean;
+  fact?: string;
+};
+
+type ChatMemoryDiagnosticChat = {
+  chatId: number;
+  createdAt: string | null;
+  query: string;
+  reply: string;
+  queryTokens: number;
+  replyTokens: number;
+  totalTokens: number;
+};
+
+type ChatMemoryDiagnosticSummaryEntry = {
+  chatId: number;
+  query: string;
+  reply: string;
+  totalTokens: number;
+};
+
+type ChatMemoryRetrievedChat = {
+  chatId: number;
+  chatUid: string;
+  createdAt: string | null;
+  query: string;
+  reply: string;
+  totalTokens: number;
+  score: number;
+};
+
+type ChatMemoryDiagnostics = {
+  sessionUid: string;
+  sessionFound: boolean;
+  settings: ChatMemorySettings;
+  controls: SessionMemoryControls;
+  rawStoredChatCount: number;
+  storedChatCount: number;
+  forgottenChatCount: number;
+  recentChatCount: number;
+  olderChatCount: number;
+  omittedOlderChatCount: number;
+  persistedSummaryEntryCount: number;
+  visibleSummaryEntryCount: number;
+  pinnedFactCount: number;
+  pinnedFacts: string[];
+  retrievedChatCount: number;
+  summary: string;
+  summaryEstimatedTokens: number;
+  verbatimEstimatedTokens: number;
+  retrievalEstimatedTokens: number;
+  storedSummaryEstimatedTokens: number;
+  tokenEstimatorScale: number;
+  tokenEstimatorObservations: number;
+  lastPromptEvalCount: number | null;
+  lastPromptEstimatedTokens: number | null;
+  updatedAt: string | null;
+  recentChats: ChatMemoryDiagnosticChat[];
+  visibleSummaryEntries: ChatMemoryDiagnosticSummaryEntry[];
+  retrievedChats: ChatMemoryRetrievedChat[];
+};
+
+type LegacyChatMemorySettings = {
+  verbatimHistoryChars?: unknown;
+  summaryChars?: unknown;
+  summaryQueryChars?: unknown;
+  summaryReplyChars?: unknown;
+};
+
+const DEFAULT_CHAT_MEMORY_SETTINGS: ChatMemorySettings = {
+  verbatimHistoryChats: 8,
+  verbatimHistoryTokens: 3000,
+  summaryTokens: 1000,
+  summaryQueryTokens: 60,
+  summaryReplyTokens: 90,
+};
+
+const LEGACY_CHARS_PER_TOKEN = 4;
+
+const resolveNonNegativeInteger = (
+  value: unknown,
+  fallback: number,
+): number => {
+  const parsedValue = typeof value === "number" ? value : Number(value);
+
+  if (!Number.isFinite(parsedValue)) {
+    return fallback;
+  }
+
+  return Math.max(0, Math.floor(parsedValue));
+};
+
+const resolveTokenBudget = (
+  tokenValue: unknown,
+  legacyCharValue: unknown,
+  fallback: number,
+): number => {
+  const parsedTokenValue =
+    typeof tokenValue === "number" ? tokenValue : Number(tokenValue);
+
+  if (Number.isFinite(parsedTokenValue)) {
+    return Math.max(0, Math.floor(parsedTokenValue));
+  }
+
+  const parsedLegacyChars =
+    typeof legacyCharValue === "number"
+      ? legacyCharValue
+      : Number(legacyCharValue);
+
+  if (Number.isFinite(parsedLegacyChars)) {
+    return Math.max(0, Math.floor(parsedLegacyChars / LEGACY_CHARS_PER_TOKEN));
+  }
+
+  return fallback;
+};
+
+const resolveChatMemorySettings = (value: unknown): ChatMemorySettings => {
+  const settings =
+    value && typeof value === "object"
+      ? (value as Partial<Record<keyof ChatMemorySettings, unknown>> as Partial<
+          Record<keyof ChatMemorySettings, unknown>
+        > &
+          LegacyChatMemorySettings)
+      : {};
+
+  return {
+    verbatimHistoryChats: resolveNonNegativeInteger(
+      settings.verbatimHistoryChats,
+      DEFAULT_CHAT_MEMORY_SETTINGS.verbatimHistoryChats,
+    ),
+    verbatimHistoryTokens: resolveTokenBudget(
+      settings.verbatimHistoryTokens,
+      settings.verbatimHistoryChars,
+      DEFAULT_CHAT_MEMORY_SETTINGS.verbatimHistoryTokens,
+    ),
+    summaryTokens: resolveTokenBudget(
+      settings.summaryTokens,
+      settings.summaryChars,
+      DEFAULT_CHAT_MEMORY_SETTINGS.summaryTokens,
+    ),
+    summaryQueryTokens: resolveTokenBudget(
+      settings.summaryQueryTokens,
+      settings.summaryQueryChars,
+      DEFAULT_CHAT_MEMORY_SETTINGS.summaryQueryTokens,
+    ),
+    summaryReplyTokens: resolveTokenBudget(
+      settings.summaryReplyTokens,
+      settings.summaryReplyChars,
+      DEFAULT_CHAT_MEMORY_SETTINGS.summaryReplyTokens,
+    ),
+  };
 };
 
 const DRAFT_SESSION_KEY = "__draft__";
@@ -156,8 +412,74 @@ const formatChatTimestamp = (value?: string): string => {
 const getSessionKey = (sessionUid?: string): string =>
   sessionUid || DRAFT_SESSION_KEY;
 
+const parseJsonObject = (value: unknown): Record<string, unknown> => {
+  try {
+    if (typeof value === "string" && value) {
+      const parsedValue = JSON.parse(value) as unknown;
+
+      return parsedValue &&
+        typeof parsedValue === "object" &&
+        !Array.isArray(parsedValue)
+        ? (parsedValue as Record<string, unknown>)
+        : {};
+    }
+
+    return value && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
+};
+
+const toUniqueStrings = (value: unknown): string[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const seen = new Set<string>();
+  const results: string[] = [];
+
+  for (const item of value) {
+    const nextValue = trim(String(item || ""));
+
+    if (!nextValue) {
+      continue;
+    }
+
+    const key = nextValue.toLowerCase();
+
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    results.push(nextValue);
+  }
+
+  return results;
+};
+
+const parseSessionMemoryControls = (value: unknown): SessionMemoryControls => {
+  const rawControls = get(parseJsonObject(value), "memoryControls", {});
+
+  return {
+    pinnedFacts: toUniqueStrings(get(rawControls, "pinnedFacts", [])),
+    forgottenChatUids: toUniqueStrings(
+      get(rawControls, "forgottenChatUids", []),
+    ),
+  };
+};
+
 const hasMeaningfulChatText = (value?: string): boolean =>
   trim(value || "").length > 0;
+
+const SESSION_TITLE_SOURCES = new Set<SessionTitleSource>([
+  "placeholder",
+  "heuristic",
+  "llm",
+  "manual",
+]);
 
 const extractReplyContent = (payload: any): string => {
   if (has(payload, ["choices", 0, "message", "content"])) {
@@ -166,6 +488,52 @@ const extractReplyContent = (payload: any): string => {
 
   return get(payload, "message.content", get(payload, "reply", ""));
 };
+
+const normalizeChatResponseMetadata = (
+  value: unknown,
+): ChatResponseMetadata | null => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const sessionUid = trim(String(get(value, "sessionUid", "")));
+  const chatUid = trim(String(get(value, "chatUid", "")));
+
+  if (!sessionUid || !chatUid) {
+    return null;
+  }
+
+  const metadata: ChatResponseMetadata = {
+    sessionUid,
+    chatUid,
+  };
+  const sessionTitle = trim(String(get(value, "sessionTitle", "")));
+  const sessionTitleSource = trim(String(get(value, "sessionTitleSource", "")));
+  const isInitialSessionTitle = Boolean(
+    get(value, "isInitialSessionTitle", false),
+  );
+
+  if (
+    isInitialSessionTitle &&
+    sessionTitle &&
+    SESSION_TITLE_SOURCES.has(sessionTitleSource as SessionTitleSource)
+  ) {
+    metadata.sessionTitle = sessionTitle;
+    metadata.sessionTitleSource = sessionTitleSource as SessionTitleSource;
+    metadata.isInitialSessionTitle = true;
+  }
+
+  return metadata;
+};
+
+const extractChatResponseMetadata = (
+  payload: unknown,
+): ChatResponseMetadata | null => normalizeChatResponseMetadata(payload);
+
+const extractStreamChatResponseMetadata = (
+  payload: unknown,
+): ChatResponseMetadata | null =>
+  normalizeChatResponseMetadata(get(payload, "agentOneMeta", null));
 
 /**
  * Hook for copy functionality
@@ -225,13 +593,28 @@ const Gpt = () => {
   const [history, setHistory] = useState<SessionRecord[]>([]);
   const [activeHistoryIndex, setActiveHistoryIndex] = useState<number>(-1); // Track currently active history
   const [sessionChats, setSessionChats] = useState<ChatRecord[]>([]); // State for chats of the active session
+  const [chatMemorySettings, setChatMemorySettings] =
+    useState<ChatMemorySettings>(DEFAULT_CHAT_MEMORY_SETTINGS);
+  const [chatMemoryDiagnostics, setChatMemoryDiagnostics] =
+    useState<ChatMemoryDiagnostics | null>(null);
+  const [chatMemoryDiagnosticsError, setChatMemoryDiagnosticsError] =
+    useState<string>("");
+  const [chatMemoryDiagnosticsLoading, setChatMemoryDiagnosticsLoading] =
+    useState<boolean>(false);
+  const [chatMemoryRevision, setChatMemoryRevision] = useState<number>(0);
+  const [sessionMemoryBusy, setSessionMemoryBusy] = useState<boolean>(false);
+  const [newPinnedFact, setNewPinnedFact] = useState<string>("");
   const [showHistoryDebug, setShowHistoryDebug] = useState<boolean | any>(
     false,
   );
+  const [chatActionMenuAnchorEl, setChatActionMenuAnchorEl] =
+    useState<HTMLElement | null>(null);
+  const [chatActionMenuChat, setChatActionMenuChat] =
+    useState<ChatRecord | null>(null);
   const [cookies, setCookie] = useCookies();
   const [sidebarOpen, setSidebarOpen] = React.useState(false);
   const [showDebug, setShowDebug] = useState<boolean>(false);
-  const [uuids, setUuids] = useState<{ [sessionUid: string]: string[] }>({}); // Hierarchical UUIDs
+  const [, setUuids] = useState<{ [sessionUid: string]: string[] }>({}); // Hierarchical UUIDs
   // @ts-expect-error - to be used soon
   const [scrollToBottomVisible, setScrollToBottomVisible] = useState(false);
   // @ts-expect-error - to be used soon
@@ -240,10 +623,50 @@ const Gpt = () => {
   const queryFieldRef = useRef<HTMLInputElement | null>(null);
   const controllerRef = useRef<AbortController | null>(null);
   const streamFlushFrameRef = useRef<number | null>(null);
+  const shouldRefocusQueryRef = useRef<boolean>(false);
+  const pendingSessionScrollUidRef = useRef<string | null>(null);
+  const pendingChatUidRef = useRef<string | null>(null);
+  const pendingChatSessionKeyRef = useRef<string | null>(null);
   const streamingEndRef = useRef<null | HTMLDivElement>(null);
   const chatListRef = useRef<HTMLUListElement>(null);
 
   const { handleCopy, isShowingSuccess } = useCopyHandler();
+  const deferredDebugQuery = useDeferredValue(query);
+  const activeSession =
+    activeHistoryIndex >= 0 && has(history, [activeHistoryIndex])
+      ? history[activeHistoryIndex]
+      : undefined;
+  const activeSessionUid = activeSession?.uid || "";
+  const activeSessionMemoryControls = parseSessionMemoryControls(
+    activeSession?.jsonMeta,
+  );
+
+  const renderMarkdownCode = ({
+    className,
+    children,
+  }: {
+    className?: string;
+    children?: React.ReactNode;
+  }) => {
+    const code = String(children || "").replace(/\n$/, "");
+    const languageMatch = /language-([\w-]+)/.exec(className || "");
+    const isCodeBlock = Boolean(languageMatch) || code.includes("\n");
+
+    if (!isCodeBlock) {
+      return <code className={className}>{children}</code>;
+    }
+
+    return (
+      <React.Suspense fallback={null}>
+        <CodeFormat code={code} language={languageMatch?.[1] || "text"} />
+      </React.Suspense>
+    );
+  };
+
+  const clearPendingChatPreview = () => {
+    pendingChatUidRef.current = null;
+    pendingChatSessionKeyRef.current = null;
+  };
 
   useEffect(() => {
     return () => {
@@ -390,6 +813,7 @@ const Gpt = () => {
         return;
       }
 
+      shouldRefocusQueryRef.current = true;
       controllerRef.current = new AbortController();
       setSending(true);
       setStreamContent([]);
@@ -402,6 +826,7 @@ const Gpt = () => {
           selectedModel,
           temperature,
           stream,
+          chatMemorySettings,
           activeSession?.uid || "",
           controllerRef.current,
         );
@@ -414,17 +839,24 @@ const Gpt = () => {
 
           setHistory(refreshedHistory);
           setActiveHistoryIndex(
-            nextIndex >= 0 ? nextIndex : refreshedHistory.length ? 0 : -1,
+            nextIndex >= 0
+              ? nextIndex
+              : refreshedHistory.length
+                ? refreshedHistory.length - 1
+                : -1,
           );
           setUuids((prevUuids) => {
-            const draftChatUids = prevUuids[DRAFT_SESSION_KEY] || [];
+            const draftChatUids = (prevUuids[DRAFT_SESSION_KEY] || []).filter(
+              (uid) => uid !== sendResult.chatUid,
+            );
+            const sessionChatUids = (
+              prevUuids[sendResult.sessionUid] || []
+            ).filter((uid) => uid !== sendResult.chatUid);
 
             return {
               ...prevUuids,
               [sendResult.sessionUid]:
-                draftChatUids.length > 0
-                  ? draftChatUids
-                  : prevUuids[sendResult.sessionUid] || [],
+                draftChatUids.length > 0 ? draftChatUids : sessionChatUids,
               [DRAFT_SESSION_KEY]: [],
             };
           });
@@ -440,6 +872,7 @@ const Gpt = () => {
       query,
       selectedModel,
       sending,
+      chatMemorySettings,
       stream,
       temperature,
     ],
@@ -473,6 +906,7 @@ const Gpt = () => {
     model: string,
     temperature: number,
     stream: boolean,
+    chatMemorySettings: ChatMemorySettings,
     sessionUid: string,
     controller: AbortController,
   ): Promise<SendQueryResult> => {
@@ -541,6 +975,9 @@ const Gpt = () => {
     };
 
     try {
+      pendingChatUidRef.current = newChatUid;
+      pendingChatSessionKeyRef.current = sessionKey;
+
       setUuids((prev) => ({
         ...prev,
         [sessionKey]: [...(prev[sessionKey] || []), newChatUid],
@@ -554,6 +991,7 @@ const Gpt = () => {
           model,
           temperature,
           stream,
+          chatMemory: chatMemorySettings,
           sessionUid: currentSessionUid,
           chatUid: newChatUid,
         }),
@@ -580,34 +1018,49 @@ const Gpt = () => {
 
         const decoder = new TextDecoder("utf-8");
         let finalContent = "";
+        let pendingLine = "";
+        let streamResponseMetadata: ChatResponseMetadata | null = null;
+
+        const consumeStreamLine = (line: string) => {
+          if (!line.trim()) {
+            return;
+          }
+
+          try {
+            const data = JSON.parse(line);
+            const metadata = extractStreamChatResponseMetadata(data);
+
+            if (metadata) {
+              streamResponseMetadata = metadata;
+              return;
+            }
+
+            const chunkContent = has(data, ["choices", 0, "delta", "content"])
+              ? get(data, ["choices", 0, "delta", "content"], "")
+              : get(data, "message.content", "");
+
+            bufferedMessages.push(data);
+            bufferedContent += chunkContent;
+            finalContent += chunkContent;
+          } catch (error) {
+            console.error("Error parsing JSON:", error, line);
+          }
+        };
 
         while (true) {
           const { done, value } = await reader.read();
 
           if (done) {
+            consumeStreamLine(pendingLine);
             break;
           }
 
           const chunk = decoder.decode(value, { stream: true });
-          const lines = chunk.split("\n");
+          const lines = `${pendingLine}${chunk}`.split("\n");
+          pendingLine = lines.pop() || "";
 
           for (const line of lines) {
-            if (!line.trim()) {
-              continue;
-            }
-
-            try {
-              const data = JSON.parse(line);
-              const chunkContent = has(data, ["choices", 0, "delta", "content"])
-                ? get(data, ["choices", 0, "delta", "content"], "")
-                : get(data, "message.content", "");
-
-              bufferedMessages.push(data);
-              bufferedContent += chunkContent;
-              finalContent += chunkContent;
-            } catch (error) {
-              console.error("Error parsing JSON:", error, line);
-            }
+            consumeStreamLine(line);
           }
 
           scheduleStreamFlush();
@@ -620,16 +1073,31 @@ const Gpt = () => {
           throw new Error("Received an empty response from Ollama");
         }
 
+        const payloadMetadata: ChatResponseMetadata =
+          streamResponseMetadata || {
+            sessionUid: resolvedSessionUid,
+            chatUid: resolvedChatUid,
+          };
+        removePendingChatUid();
+        clearPendingChatPreview();
         const payload = {
           message: { content: finalContent, role: "assistant" },
-          sessionUid: resolvedSessionUid,
-          chatUid: resolvedChatUid,
+          sessionUid: payloadMetadata.sessionUid || resolvedSessionUid,
+          chatUid: payloadMetadata.chatUid || resolvedChatUid,
+          ...(payloadMetadata.isInitialSessionTitle &&
+          payloadMetadata.sessionTitle
+            ? {
+                sessionTitle: payloadMetadata.sessionTitle,
+                sessionTitleSource: payloadMetadata.sessionTitleSource,
+                isInitialSessionTitle: true,
+              }
+            : {}),
         };
 
         setSessionChats((prevChats) => [
           ...prevChats,
           {
-            uid: resolvedChatUid,
+            uid: payload.chatUid,
             query,
             reply: finalContent,
             role: "assistant",
@@ -640,22 +1108,33 @@ const Gpt = () => {
 
         return {
           ok: true,
-          sessionUid: resolvedSessionUid,
-          chatUid: resolvedChatUid,
+          sessionUid: payload.sessionUid,
+          chatUid: payload.chatUid,
           reply: finalContent,
           createdAt,
+          ...(payload.isInitialSessionTitle && payload.sessionTitle
+            ? {
+                sessionTitle: payload.sessionTitle,
+                sessionTitleSource: payload.sessionTitleSource,
+                isInitialSessionTitle: true,
+              }
+            : {}),
           payload,
         };
       } else {
         const payload = await response.json();
-        const responseChatUid = payload.chatUid || resolvedChatUid;
-        const responseSessionUid = payload.sessionUid || resolvedSessionUid;
+        const responseMetadata = extractChatResponseMetadata(payload);
+        const responseChatUid = responseMetadata?.chatUid || resolvedChatUid;
+        const responseSessionUid =
+          responseMetadata?.sessionUid || resolvedSessionUid;
         const reply = extractReplyContent(payload);
 
         if (!hasMeaningfulChatText(reply)) {
           throw new Error("Received an empty response from Ollama");
         }
 
+        removePendingChatUid();
+        clearPendingChatPreview();
         setSessionChats((prevChats) => [
           ...prevChats,
           {
@@ -674,12 +1153,21 @@ const Gpt = () => {
           chatUid: responseChatUid,
           reply,
           createdAt,
+          ...(responseMetadata?.isInitialSessionTitle &&
+          responseMetadata.sessionTitle
+            ? {
+                sessionTitle: responseMetadata.sessionTitle,
+                sessionTitleSource: responseMetadata.sessionTitleSource,
+                isInitialSessionTitle: true,
+              }
+            : {}),
           payload,
         };
       }
     } catch (error) {
       cancelScheduledStreamFlush();
       removePendingChatUid();
+      clearPendingChatPreview();
 
       if (error instanceof DOMException && error.name === "AbortError") {
         return {
@@ -761,6 +1249,7 @@ const Gpt = () => {
   const handleCancel = useCallback(() => {
     if (controllerRef.current) {
       controllerRef.current.abort();
+      clearPendingChatPreview();
       setSending(false);
     }
   }, []);
@@ -802,6 +1291,273 @@ const Gpt = () => {
   );
 
   /**
+   * Chat memory settings change from Sidebar > Settings dialog
+   */
+  const handleChatMemorySettingChange = useCallback(
+    (key: keyof ChatMemorySettings, value: number) => {
+      if (!Number.isFinite(value)) {
+        return;
+      }
+
+      const nextSettings = {
+        ...chatMemorySettings,
+        [key]: Math.max(0, Math.floor(value)),
+      };
+
+      setChatMemorySettings(nextSettings);
+      setCookie("settings", {
+        ...cookies.settings,
+        chatMemory: nextSettings,
+      });
+    },
+    [chatMemorySettings, cookies, setCookie],
+  );
+
+  const refreshSessionState = useCallback(
+    async (sessionUid: string) => {
+      const refreshedHistory = await loadHistory();
+      const nextIndex = refreshedHistory.findIndex(
+        (session: SessionRecord) => session.uid === sessionUid,
+      );
+      const fallbackIndex = refreshedHistory.length
+        ? Math.min(activeHistoryIndex, refreshedHistory.length - 1)
+        : -1;
+
+      setHistory(refreshedHistory);
+      setActiveHistoryIndex(nextIndex >= 0 ? nextIndex : fallbackIndex);
+
+      if (nextIndex < 0 && fallbackIndex < 0) {
+        setSessionChats([]);
+      }
+
+      setChatMemoryRevision((prev) => prev + 1);
+    },
+    [activeHistoryIndex],
+  );
+
+  const handleRebuildSessionMemory = useCallback(async () => {
+    if (!activeSessionUid || sessionMemoryBusy) {
+      return;
+    }
+
+    setSessionMemoryBusy(true);
+
+    try {
+      await apiRebuildSessionMemory(activeSessionUid);
+      await refreshSessionState(activeSessionUid);
+    } catch (error) {
+      console.error("Error rebuilding session memory:", error);
+    } finally {
+      setSessionMemoryBusy(false);
+    }
+  }, [activeSessionUid, refreshSessionState, sessionMemoryBusy]);
+
+  const handleAddPinnedFact = useCallback(async () => {
+    const fact = trim(newPinnedFact);
+
+    if (!activeSessionUid || !fact || sessionMemoryBusy) {
+      return;
+    }
+
+    setSessionMemoryBusy(true);
+
+    try {
+      await apiPinSessionFact(activeSessionUid, fact);
+      setNewPinnedFact("");
+      await refreshSessionState(activeSessionUid);
+    } catch (error) {
+      console.error("Error pinning session fact:", error);
+    } finally {
+      setSessionMemoryBusy(false);
+    }
+  }, [activeSessionUid, newPinnedFact, refreshSessionState, sessionMemoryBusy]);
+
+  const handleRemovePinnedFact = useCallback(
+    async (fact: string) => {
+      if (!activeSessionUid || !fact || sessionMemoryBusy) {
+        return;
+      }
+
+      setSessionMemoryBusy(true);
+
+      try {
+        await apiUnpinSessionFact(activeSessionUid, fact);
+        await refreshSessionState(activeSessionUid);
+      } catch (error) {
+        console.error("Error unpinning session fact:", error);
+      } finally {
+        setSessionMemoryBusy(false);
+      }
+    },
+    [activeSessionUid, refreshSessionState, sessionMemoryBusy],
+  );
+
+  const handleToggleForgottenTurn = useCallback(
+    async (chat: ChatRecord, forgotten: boolean) => {
+      if (!activeSessionUid || !chat.uid || sessionMemoryBusy) {
+        return;
+      }
+
+      setSessionMemoryBusy(true);
+
+      try {
+        await apiUpdateForgottenTurn(activeSessionUid, chat.uid, forgotten);
+        await refreshSessionState(activeSessionUid);
+      } catch (error) {
+        console.error("Error updating forgotten turn state:", error);
+      } finally {
+        setSessionMemoryBusy(false);
+      }
+    },
+    [activeSessionUid, refreshSessionState, sessionMemoryBusy],
+  );
+
+  const handleChatActionMenuOpen = useCallback(
+    (event: React.MouseEvent<HTMLElement>, chat: ChatRecord) => {
+      event.stopPropagation();
+      setChatActionMenuAnchorEl(event.currentTarget);
+      setChatActionMenuChat(chat);
+    },
+    [],
+  );
+
+  const handleChatActionMenuClose = useCallback(() => {
+    setChatActionMenuAnchorEl(null);
+    setChatActionMenuChat(null);
+  }, []);
+
+  const handleOpenHistoryDebug = useCallback(
+    (chat: ChatRecord) => {
+      setShowHistoryDebug(chat);
+      handleChatActionMenuClose();
+    },
+    [handleChatActionMenuClose],
+  );
+
+  const handleDeleteChatFromMenu = useCallback(async () => {
+    const chatUid = chatActionMenuChat?.uid;
+
+    handleChatActionMenuClose();
+
+    if (!chatUid) {
+      return;
+    }
+
+    await handleDeleteHistoryMessage(chatUid);
+  }, [chatActionMenuChat?.uid, handleChatActionMenuClose]);
+
+  const handleToggleForgottenTurnFromMenu = useCallback(async () => {
+    const chat = chatActionMenuChat;
+
+    handleChatActionMenuClose();
+
+    if (!chat?.uid) {
+      return;
+    }
+
+    const forgotten = !activeSessionMemoryControls.forgottenChatUids.includes(
+      chat.uid,
+    );
+    await handleToggleForgottenTurn(chat, forgotten);
+  }, [
+    activeSessionMemoryControls.forgottenChatUids,
+    chatActionMenuChat,
+    handleChatActionMenuClose,
+    handleToggleForgottenTurn,
+  ]);
+
+  useEffect(() => {
+    if (!showDebug) {
+      return;
+    }
+
+    if (!activeSessionUid) {
+      setChatMemoryDiagnostics(null);
+      setChatMemoryDiagnosticsError("");
+      setChatMemoryDiagnosticsLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadChatMemoryDiagnostics = async () => {
+      setChatMemoryDiagnosticsLoading(true);
+      setChatMemoryDiagnosticsError("");
+
+      try {
+        const diagnostics = await apiGetChatMemoryDiagnostics(
+          activeSessionUid,
+          chatMemorySettings,
+          trim(deferredDebugQuery),
+        );
+
+        if (!cancelled) {
+          setChatMemoryDiagnostics(diagnostics);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setChatMemoryDiagnostics(null);
+          setChatMemoryDiagnosticsError(
+            error instanceof Error
+              ? error.message
+              : "Failed to load chat memory diagnostics",
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setChatMemoryDiagnosticsLoading(false);
+        }
+      }
+    };
+
+    loadChatMemoryDiagnostics();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    showDebug,
+    activeSessionUid,
+    chatMemorySettings,
+    deferredDebugQuery,
+    chatMemoryRevision,
+  ]);
+
+  useEffect(() => {
+    if (sending || !shouldRefocusQueryRef.current) {
+      return;
+    }
+
+    const frame = requestAnimationFrame(() => {
+      queryFieldRef.current?.focus();
+      shouldRefocusQueryRef.current = false;
+    });
+
+    return () => cancelAnimationFrame(frame);
+  }, [sending]);
+
+  useEffect(() => {
+    pendingSessionScrollUidRef.current = activeSessionUid || null;
+  }, [activeSessionUid]);
+
+  useEffect(() => {
+    if (
+      loading ||
+      !activeSessionUid ||
+      pendingSessionScrollUidRef.current !== activeSessionUid
+    ) {
+      return;
+    }
+
+    const frame = requestAnimationFrame(() => {
+      streamingEndRef.current?.scrollIntoView({ behavior: "auto" });
+      pendingSessionScrollUidRef.current = null;
+    });
+
+    return () => cancelAnimationFrame(frame);
+  }, [activeSessionUid, loading, sessionChats.length]);
+
+  /**
    * Lower-left chevron for opening/closing sidebar
    */
   const handleToggleSidebar = useCallback(() => {
@@ -834,13 +1590,19 @@ const Gpt = () => {
     }, [history, activeHistoryIndex]);
 
     const lastHistoryChat = last(sessionChats);
-    const pendingChatUid = last(uuids[getSessionKey(activeSession?.uid)] || []);
+    const activeSessionKey = getSessionKey(activeSession?.uid);
+    const pendingChatUid =
+      pendingChatSessionKeyRef.current === activeSessionKey
+        ? pendingChatUidRef.current
+        : null;
+    const hasPendingChat = Boolean(sending && pendingChatUid);
     const pendingReply = stream
       ? streamContentString
       : extractReplyContent(result);
     const isDuplicate = Boolean(
       query &&
       lastHistoryChat &&
+      pendingChatUid &&
       query === lastHistoryChat.query &&
       pendingChatUid === lastHistoryChat.uid,
     );
@@ -848,9 +1610,9 @@ const Gpt = () => {
     // Combine history and current query for display, filtering out the duplicate last message if needed
     const chatToDisplay = [
       ...(sessionChats || []),
-      sending && !isDuplicate
+      hasPendingChat && !isDuplicate
         ? {
-            uid: pendingChatUid || "pending-chat",
+            uid: pendingChatUid,
             query,
             reply: pendingReply,
           }
@@ -955,24 +1717,6 @@ const Gpt = () => {
                                   <IconButton
                                     size="small"
                                     onClick={() =>
-                                      handleDeleteHistoryMessage(chat.uid)
-                                    }
-                                  >
-                                    <Tooltip title="Delete this item pair">
-                                      <DeleteIcon color="warning" />
-                                    </Tooltip>
-                                  </IconButton>
-                                  <IconButton
-                                    size="small"
-                                    onClick={() => setShowHistoryDebug(chat)}
-                                  >
-                                    <Tooltip title="Show debug data for this query/response pair">
-                                      <InfoIcon color="primary" />
-                                    </Tooltip>
-                                  </IconButton>
-                                  <IconButton
-                                    size="small"
-                                    onClick={() =>
                                       handleCopy(chat.query, `query-${index}`)
                                     }
                                   >
@@ -995,6 +1739,16 @@ const Gpt = () => {
                                   >
                                     <Tooltip title="Copy text to query editor">
                                       <MoveDown color="primary" />
+                                    </Tooltip>
+                                  </IconButton>
+                                  <IconButton
+                                    size="small"
+                                    onClick={(event) =>
+                                      handleChatActionMenuOpen(event, chat)
+                                    }
+                                  >
+                                    <Tooltip title="Open turn actions">
+                                      <MoreVert color="primary" />
                                     </Tooltip>
                                   </IconButton>
                                 </>
@@ -1021,7 +1775,13 @@ const Gpt = () => {
                             }}
                             primary={
                               <div className="results-box">
-                                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                <ReactMarkdown
+                                  remarkPlugins={[remarkGfm]}
+                                  components={{
+                                    pre: ({ children }) => <>{children}</>,
+                                    code: renderMarkdownCode,
+                                  }}
+                                >
                                   {get(chat, "reply", "")}
                                 </ReactMarkdown>
                               </div>
@@ -1126,34 +1886,142 @@ const Gpt = () => {
                 )
               }
             </List>
+            <Menu
+              anchorEl={chatActionMenuAnchorEl}
+              open={
+                Boolean(chatActionMenuAnchorEl) && Boolean(chatActionMenuChat)
+              }
+              onClose={handleChatActionMenuClose}
+            >
+              <MenuItem
+                onClick={() =>
+                  chatActionMenuChat &&
+                  handleOpenHistoryDebug(chatActionMenuChat)
+                }
+              >
+                <ListItemIcon>
+                  <InfoIcon color="primary" fontSize="small" />
+                </ListItemIcon>
+                Memory Debug
+              </MenuItem>
+              <MenuItem onClick={handleToggleForgottenTurnFromMenu}>
+                <ListItemIcon>
+                  <InfoIcon color="primary" fontSize="small" />
+                </ListItemIcon>
+                {chatActionMenuChat?.uid &&
+                activeSessionMemoryControls.forgottenChatUids.includes(
+                  chatActionMenuChat.uid,
+                )
+                  ? "Remember Turn"
+                  : "Forget Turn"}
+              </MenuItem>
+              <MenuItem onClick={handleDeleteChatFromMenu}>
+                <ListItemIcon>
+                  <DeleteIcon color="warning" fontSize="small" />
+                </ListItemIcon>
+                Delete Item Pair
+              </MenuItem>
+            </Menu>
           </CardContent>
         </Card>
-        {showHistoryDebug !== false ? (
-          <Dialog
-            scroll="paper"
-            open={showHistoryDebug !== false}
-            onClose={() => setShowHistoryDebug(false)}
-          >
-            <DialogTitle>History Item Information</DialogTitle>
-            <DialogContent dividers={true} className="debug-DialogContent">
-              <h4>Query and response</h4>
-              <React.Suspense fallback={null}>
-                <CodeFormat
-                  code={JSON.stringify(showHistoryDebug, null, 2)}
-                  language="json"
-                />
-              </React.Suspense>
-            </DialogContent>
-            <DialogActions>
-              <Button
-                variant="outlined"
-                onClick={() => setShowHistoryDebug(false)}
-              >
-                Close
-              </Button>
-            </DialogActions>
-          </Dialog>
-        ) : null}
+        {showHistoryDebug !== false
+          ? (() => {
+              const historyDebugMeta = parseJsonObject(
+                showHistoryDebug?.jsonMeta,
+              );
+              const historyMemorySnapshot = get(
+                historyDebugMeta,
+                "memorySnapshot",
+                null,
+              );
+              const isForgottenHistoryTurn = Boolean(
+                showHistoryDebug?.uid &&
+                activeSessionMemoryControls.forgottenChatUids.includes(
+                  showHistoryDebug.uid,
+                ),
+              );
+
+              return (
+                <Dialog
+                  scroll="paper"
+                  open={showHistoryDebug !== false}
+                  onClose={() => setShowHistoryDebug(false)}
+                  fullWidth={true}
+                  maxWidth="lg"
+                >
+                  <DialogTitle>History Item Information</DialogTitle>
+                  <DialogContent
+                    dividers={true}
+                    className="debug-DialogContent"
+                  >
+                    <Stack spacing={2}>
+                      <Box>
+                        <h4>Query and response</h4>
+                        <React.Suspense fallback={null}>
+                          <CodeFormat
+                            code={JSON.stringify(
+                              {
+                                ...showHistoryDebug,
+                                jsonMeta: historyDebugMeta,
+                                forgottenFromMemory: isForgottenHistoryTurn,
+                              },
+                              null,
+                              2,
+                            )}
+                            language="json"
+                          />
+                        </React.Suspense>
+                      </Box>
+                      <Box>
+                        <h4>Stored Memory Snapshot</h4>
+                        <React.Suspense fallback={null}>
+                          <CodeFormat
+                            code={
+                              historyMemorySnapshot
+                                ? JSON.stringify(historyMemorySnapshot, null, 2)
+                                : JSON.stringify(
+                                    {
+                                      message:
+                                        "No stored memory snapshot exists for this turn.",
+                                    },
+                                    null,
+                                    2,
+                                  )
+                            }
+                            language="json"
+                          />
+                        </React.Suspense>
+                      </Box>
+                    </Stack>
+                  </DialogContent>
+                  <DialogActions>
+                    {showHistoryDebug?.uid ? (
+                      <Button
+                        variant="outlined"
+                        disabled={sessionMemoryBusy}
+                        onClick={() =>
+                          handleToggleForgottenTurn(
+                            showHistoryDebug,
+                            !isForgottenHistoryTurn,
+                          )
+                        }
+                      >
+                        {isForgottenHistoryTurn
+                          ? "Remember Turn"
+                          : "Forget Turn"}
+                      </Button>
+                    ) : null}
+                    <Button
+                      variant="outlined"
+                      onClick={() => setShowHistoryDebug(false)}
+                    >
+                      Close
+                    </Button>
+                  </DialogActions>
+                </Dialog>
+              );
+            })()
+          : null}
       </>
     );
   };
@@ -1167,20 +2035,63 @@ const Gpt = () => {
     const debugResult = { result, streamContent };
 
     return showDebug ? (
-      <Dialog open={showDebug} fullWidth={true} maxWidth="xl">
+      <Dialog
+        open={showDebug}
+        fullWidth={true}
+        maxWidth="xl"
+        onClose={() => setShowDebug(false)}
+      >
         <DialogTitle>Debug Data</DialogTitle>
-        <DialogContent>
-          <h4>LLM Response</h4>
-          <Card>
-            <CardContent>
-              <React.Suspense fallback={null}>
-                <CodeFormat
-                  code={result ? JSON.stringify(debugResult, null, 2) : ""}
-                  language="json"
-                />
-              </React.Suspense>
-            </CardContent>
-          </Card>
+        <DialogContent dividers={true}>
+          <Stack spacing={2}>
+            <Box>
+              <h4>LLM Response</h4>
+              <Card>
+                <CardContent>
+                  <React.Suspense fallback={null}>
+                    <CodeFormat
+                      code={result ? JSON.stringify(debugResult, null, 2) : ""}
+                      language="json"
+                    />
+                  </React.Suspense>
+                </CardContent>
+              </Card>
+            </Box>
+            <Box>
+              <h4>Chat Memory</h4>
+              <Card>
+                <CardContent>
+                  {chatMemoryDiagnosticsLoading ? (
+                    <Box
+                      sx={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        minHeight: 120,
+                      }}
+                    >
+                      <CircularProgress size={28} />
+                    </Box>
+                  ) : chatMemoryDiagnosticsError ? (
+                    <Box component="pre" sx={{ m: 0, whiteSpace: "pre-wrap" }}>
+                      {chatMemoryDiagnosticsError}
+                    </Box>
+                  ) : activeSessionUid && chatMemoryDiagnostics ? (
+                    <React.Suspense fallback={null}>
+                      <CodeFormat
+                        code={JSON.stringify(chatMemoryDiagnostics, null, 2)}
+                        language="json"
+                      />
+                    </React.Suspense>
+                  ) : (
+                    <Box component="pre" sx={{ m: 0, whiteSpace: "pre-wrap" }}>
+                      No active persisted session is selected.
+                    </Box>
+                  )}
+                </CardContent>
+              </Card>
+            </Box>
+          </Stack>
         </DialogContent>
         <DialogActions>
           <Button variant="outlined" onClick={() => setShowDebug(false)}>
@@ -1199,6 +2110,7 @@ const Gpt = () => {
     setTemperature(savedSettings.temperature ?? 0.7);
     setStream(savedSettings.stream ?? true);
     setSidebarOpen(savedSettings.sidebarOpen ?? false);
+    setChatMemorySettings(resolveChatMemorySettings(savedSettings.chatMemory));
 
     const initializePage = async () => {
       const [availableModels, initialHistory] = await Promise.all([
@@ -1215,8 +2127,11 @@ const Gpt = () => {
         setActiveHistoryIndex(-1);
         setSessionChats([]);
       } else {
-        setActiveHistoryIndex(0);
-        const initialChats = await loadChatsForSession(initialHistory[0].uid);
+        const latestHistoryIndex = initialHistory.length - 1;
+        setActiveHistoryIndex(latestHistoryIndex);
+        const initialChats = await loadChatsForSession(
+          initialHistory[latestHistoryIndex].uid,
+        );
         setSessionChats(initialChats);
       }
 
@@ -1287,6 +2202,16 @@ const Gpt = () => {
           setShowDebug,
           createNewHistoryItem,
           saveHistory,
+          chatMemorySettings,
+          activeSessionUid,
+          activeSessionMemoryControls,
+          newPinnedFact,
+          setNewPinnedFact,
+          sessionMemoryBusy,
+          handleRebuildSessionMemory,
+          handleAddPinnedFact,
+          handleRemovePinnedFact,
+          handleChatMemorySettingChange,
           handleStreamChange,
           handleModelChange,
           handleTemperatureChange,

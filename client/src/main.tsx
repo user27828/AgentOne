@@ -2,7 +2,7 @@
  * Main wrapper
  */
 import { StrictMode, lazy, Suspense } from "react";
-import { createRoot } from "react-dom/client";
+import { createRoot, type Root as ReactRoot } from "react-dom/client";
 import { createBrowserRouter, RouterProvider } from "react-router";
 import { CookiesProvider } from "react-cookie";
 import {
@@ -132,7 +132,21 @@ export const App = () => {
   );
 };
 
-createRoot(document.getElementById("root")!).render(
+type RootContainer = HTMLElement & {
+  __agentOneReactRoot?: ReactRoot;
+};
+
+const rootContainer = document.getElementById("root") as RootContainer | null;
+
+if (!rootContainer) {
+  throw new Error("Root container not found");
+}
+
+const reactRoot =
+  rootContainer.__agentOneReactRoot || createRoot(rootContainer);
+rootContainer.__agentOneReactRoot = reactRoot;
+
+reactRoot.render(
   <StrictMode>
     <CookiesProvider defaultSetOptions={{ path: "/", sameSite: "lax" }}>
       <App />

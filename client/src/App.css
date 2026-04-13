@@ -33,21 +33,56 @@
 }
 
 /* Prism JS */
-pre.prism[class*="language-"] code.prism[class*="language-"] {
+.code-format {
+  position: relative;
   margin: 0;
-  padding: 0;
-  font-family: "Courier New", Courier, monospace;
-  font-size: 14px;
-  font-weight: bold;
-  background-color: rgba(0, 0, 0, 0.9) !important;
-  border-radius: 4px;
-  overflow: auto;
-  white-space: pre-wrap;
-  word-wrap: break-word;
 }
 
-pre.prism[class*="prism language-"] code.prism > .token.operator {
-  background-color: #222 !important;
+pre.code-format__pre {
+  margin: 0 !important;
+  padding: 16px 52px 16px 16px !important;
+  overflow: auto !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 12px !important;
+  background: linear-gradient(180deg, #11161d 0%, #0b1016 100%) !important;
+  box-shadow: none !important;
+}
+
+pre.code-format__pre::before,
+pre.code-format__pre::after {
+  content: none !important;
+  display: none !important;
+  box-shadow: none !important;
+}
+
+code.code-format__code[class*="language-"] {
+  display: block;
+  padding: 0 !important;
+  overflow: visible !important;
+  background: transparent !important;
+  background-image: none !important;
+  border-left: 0 !important;
+  box-shadow: none !important;
+  color: #d7e2f0 !important;
+  text-shadow: none !important;
+  white-space: pre !important;
+}
+
+code.code-format__code[class*="language-"] > .token.operator {
+  background: transparent !important;
+}
+
+.code-format__copy-button {
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  border-radius: 10px !important;
+  background: rgba(17, 22, 29, 0.88) !important;
+  color: #d7e2f0 !important;
+  backdrop-filter: blur(10px);
+  box-shadow: none !important;
+}
+
+.code-format__copy-button:hover {
+  background: rgba(27, 35, 46, 0.96) !important;
 }
 
 /* Misc */
@@ -80,7 +115,7 @@ pre.prism[class*="prism language-"] code.prism > .token.operator {
   margin: 8px 0;
 }
 
-.results-box pre {
+.results-box pre:not(.code-format__pre) {
   background: rgba(0, 0, 0, 0.2);
   border: 1px dashed grey;
   padding: 8px;
@@ -88,7 +123,7 @@ pre.prism[class*="prism language-"] code.prism > .token.operator {
   overflow: auto;
 }
 
-.results-box code {
+.results-box :not(pre) > code:not([class*="language-"]) {
   background: rgba(0, 0, 0, 0.2);
   color: inherit !important; /* can conflict with prism */
   border-bottom: 1px dotted lightgrey;

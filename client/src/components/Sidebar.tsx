@@ -30,6 +30,8 @@ import {
   Slider,
   Stack,
   Switch,
+  Tab,
+  Tabs,
   TextField,
   Tooltip,
 } from "@mui/material";
@@ -42,11 +44,70 @@ import {
   PestControl as DebugIcon,
   Settings as SettingsIcon,
   DriveFileRenameOutline as RenameIcon,
+  RestartAlt as RebuildMemoryIcon,
+  PushPin as PinIcon,
   Thermostat as TemperatureIcon,
   InterpreterMode as ModelfileIcon,
 } from "@mui/icons-material";
 import { serverUrl } from "../../src/pages/gpt";
 const ModelfileManager = React.lazy(() => import("./ModelfileManager"));
+
+type ChatMemorySettings = {
+  verbatimHistoryChats: number;
+  verbatimHistoryTokens: number;
+  summaryTokens: number;
+  summaryQueryTokens: number;
+  summaryReplyTokens: number;
+};
+
+type SessionMemoryControls = {
+  pinnedFacts: string[];
+  forgottenChatUids: string[];
+};
+
+const CHAT_MEMORY_FIELDS: Array<{
+  key: keyof ChatMemorySettings;
+  label: string;
+  description: string;
+  serverMax: number;
+}> = [
+  {
+    key: "verbatimHistoryChats",
+    label: "Verbatim history chats",
+    description:
+      "How many recent chat exchanges should remain fully verbatim before older context is summarized.",
+    serverMax: 8,
+  },
+  {
+    key: "verbatimHistoryTokens",
+    label: "Verbatim history tokens",
+    description:
+      "Approximate token budget for the recent chat exchanges that stay verbatim in the prompt.",
+    serverMax: 3000,
+  },
+  {
+    key: "summaryTokens",
+    label: "Summary tokens",
+    description:
+      "Approximate token budget for the compact rolling summary of older conversation.",
+    serverMax: 1000,
+  },
+  {
+    key: "summaryQueryTokens",
+    label: "Summary query tokens",
+    description:
+      "Approximate token cap for each older user message stored in the rolling summary.",
+    serverMax: 60,
+  },
+  {
+    key: "summaryReplyTokens",
+    label: "Summary reply tokens",
+    description:
+      "Approximate token cap for each older assistant reply stored in the rolling summary.",
+    serverMax: 90,
+  },
+];
+
 interface SidebarProps {
   models: string[];
   setModels: Dispatch<SetStateAction<string[]>>;
@@ -63,6 +124,19 @@ interface SidebarProps {
   activeHistoryIndex: number;
   setActiveHistoryIndex: (index: number) => void;
   setUuids: (val: any) => void;
+  chatMemorySettings: ChatMemorySettings;
+  activeSessionUid: string;
+  activeSessionMemoryControls: SessionMemoryControls;
+  newPinnedFact: string;
+  setNewPinnedFact: Dispatch<SetStateAction<string>>;
+  sessionMemoryBusy: boolean;
+  handleRebuildSessionMemory: () => Promise<void>;
+  handleAddPinnedFact: () => Promise<void>;
+  handleRemovePinnedFact: (fact: string) => Promise<void>;
+  handleChatMemorySettingChange: (
+    key: keyof ChatMemorySettings,
+    value: number,
+  ) => void;
   sidebarOpen: boolean;
   handleToggleSidebar: () => void;
   setShowDebug: (showDebug: boolean) => void;
@@ -109,6 +183,14 @@ const Sidebar: React.FC<SidebarProps> = ({
   activeHistoryIndex,
   setActiveHistoryIndex,
   setUuids,
+  activeSessionUid,
+  activeSessionMemoryControls,
+  newPinnedFact,
+  setNewPinnedFact,
+  sessionMemoryBusy,
+  handleRebuildSessionMemory,
+  handleAddPinnedFact,
+  handleRemovePinnedFact,
   sidebarOpen,
   handleToggleSidebar,
   createNewHistoryItem,
@@ -117,6 +199,8 @@ const Sidebar: React.FC<SidebarProps> = ({
   handleModelChange,
   handleStreamChange,
   handleTemperatureChange,
+  chatMemorySettings,
+  handleChatMemorySettingChange,
 }) => {
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [renameDialogOpen, setRenameDialogOpen] = useState(false);
@@ -129,6 +213,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     null,
   );
   const [settingsOpen, setSettingsOpen] = React.useState<boolean>(false);
+  const [settingsTab, setSettingsTab] = useState(0);
   const [modelfileManagerOpen, setModelfileManagerOpen] = useState(false);
 
   const handleClickTemp = (event: React.MouseEvent<HTMLElement>) => {
@@ -140,7 +225,15 @@ const Sidebar: React.FC<SidebarProps> = ({
   };
 
   const handleSettingsClick = () => {
+    setSettingsTab(0);
     setSettingsOpen(true);
+  };
+
+  const handleSettingsTabChange = (
+    _event: React.SyntheticEvent,
+    newValue: number,
+  ) => {
+    setSettingsTab(newValue);
   };
 
   const handleMenuOpen = (
@@ -533,55 +626,368 @@ const Sidebar: React.FC<SidebarProps> = ({
 
       {/* General Settings Dialog */}
       <Dialog
-        maxWidth="md"
+        maxWidth="sm"
         fullWidth
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
         onClick={(event) => event.stopPropagation()} // Prevent closing on inside click
       >
-        <DialogTitle>Settings</DialogTitle>
-        <DialogContent>
-          <Stack spacing={2}>
-            <Grid container direction="row" size={12}>
-              <Grid size={6}>
-                <FormControlLabel
-                  control={
-                    <Switch
-                      disabled={!size(models)}
-                      checked={stream}
-                      onChange={handleStreamChange}
-                    />
-                  }
-                  label="Stream"
-                />
+        <DialogTitle sx={{ px: 2.5, pt: 2, pb: 1 }}>Settings</DialogTitle>
+        <DialogContent sx={{ px: 2.5, py: 1 }}>
+          <Tabs
+            variant="fullWidth"
+            value={settingsTab}
+            onChange={handleSettingsTabChange}
+            sx={{
+              mb: 1.5,
+              minHeight: 38,
+              "& .MuiTab-root": {
+                minHeight: 38,
+                px: 1,
+                py: 0.75,
+                fontSize: 13,
+                textTransform: "none",
+              },
+            }}
+          >
+            <Tab label="General" />
+            <Tab label="Chat Memory" />
+          </Tabs>
+          {settingsTab === 0 ? (
+            <Stack spacing={1.5}>
+              <Grid container spacing={1.5} sx={{ alignItems: "flex-start" }}>
+                <Grid size={{ xs: 12, sm: 4 }}>
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        size="small"
+                        disabled={!size(models)}
+                        checked={stream}
+                        onChange={handleStreamChange}
+                      />
+                    }
+                    label="Stream"
+                    sx={{
+                      m: 0,
+                      "& .MuiFormControlLabel-label": {
+                        fontSize: 14,
+                        fontWeight: 500,
+                      },
+                    }}
+                  />
+                </Grid>
+                <Grid size={{ xs: 12, sm: 8 }}>
+                  <Box
+                    sx={{
+                      fontSize: 12.5,
+                      lineHeight: 1.45,
+                      color: "text.secondary",
+                    }}
+                  >
+                    Stream controls whether or not you will see realtime chat
+                    responses, or everything at once.
+                  </Box>
+                </Grid>
               </Grid>
-              <Grid size={6}>
-                Stream controls whether or not you will see "realtime" chat
-                responses, or everything at once.
-              </Grid>
-            </Grid>
-            <Divider textAlign="left">Modelfiles</Divider>
-            <Grid container direction="row" size={12}>
-              <Grid size={6}>
-                <Button
-                  variant="contained"
-                  startIcon={<ModelfileIcon />}
-                  onClick={() => setModelfileManagerOpen(true)}
+              <Divider textAlign="left" sx={{ my: 0.25 }}>
+                <Box
+                  component="span"
+                  sx={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    letterSpacing: 0.4,
+                    textTransform: "uppercase",
+                    color: "text.secondary",
+                  }}
                 >
-                  Manage Modelfiles
-                </Button>
+                  Modelfiles
+                </Box>
+              </Divider>
+              <Grid container spacing={1.5} sx={{ alignItems: "center" }}>
+                <Grid size={{ xs: 12, sm: 4 }}>
+                  <Button
+                    size="small"
+                    variant="contained"
+                    startIcon={<ModelfileIcon />}
+                    onClick={() => setModelfileManagerOpen(true)}
+                  >
+                    Manage Modelfiles
+                  </Button>
+                </Grid>
+                <Grid size={{ xs: 12, sm: 8 }}>
+                  <Box
+                    sx={{
+                      fontSize: 12.5,
+                      lineHeight: 1.45,
+                      color: "text.secondary",
+                    }}
+                  >
+                    Modelfiles let you create customized variants of base models
+                    with specific system instructions, such as a defined persona
+                    or task style.
+                  </Box>
+                </Grid>
               </Grid>
-              <Grid size={6}>
-                Modelfiles allow you to create a version of a base model which
-                has specific SYSTEM instructions. As an example, you can create
-                a persona of Carl Sagan to answer all of your cosmic questions.
-                These customized versions appear in your model list selection.
-              </Grid>
-            </Grid>
-          </Stack>
+            </Stack>
+          ) : (
+            <Stack spacing={1.25}>
+              {CHAT_MEMORY_FIELDS.map((field) => (
+                <Grid
+                  container
+                  spacing={1.25}
+                  key={field.key}
+                  sx={{ alignItems: "flex-start" }}
+                >
+                  <Grid size={{ xs: 12, sm: 5 }}>
+                    <TextField
+                      fullWidth
+                      type="number"
+                      size="small"
+                      margin="dense"
+                      label={field.label}
+                      value={chatMemorySettings[field.key]}
+                      onChange={(event) => {
+                        const nextValue = Number(event.target.value);
+
+                        if (Number.isNaN(nextValue)) {
+                          return;
+                        }
+
+                        handleChatMemorySettingChange(field.key, nextValue);
+                      }}
+                      helperText={
+                        field.key === "verbatimHistoryChats"
+                          ? `Cap ${field.serverMax} chats`
+                          : `Cap ${field.serverMax} tokens`
+                      }
+                      slotProps={{
+                        htmlInput: {
+                          min: 0,
+                          max: field.serverMax,
+                          step: 1,
+                        },
+                      }}
+                      sx={{
+                        "& .MuiInputBase-input": {
+                          py: 1,
+                        },
+                        "& .MuiFormHelperText-root": {
+                          mt: 0.25,
+                          fontSize: 11,
+                          lineHeight: 1.3,
+                        },
+                      }}
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 7 }}>
+                    <Box
+                      sx={{
+                        pt: { xs: 0, sm: 1 },
+                        fontSize: 12,
+                        lineHeight: 1.4,
+                        color: "text.secondary",
+                      }}
+                    >
+                      {field.description}
+                    </Box>
+                  </Grid>
+                </Grid>
+              ))}
+              <Divider textAlign="left" sx={{ my: 0.25 }}>
+                <Box
+                  component="span"
+                  sx={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    letterSpacing: 0.4,
+                    textTransform: "uppercase",
+                    color: "text.secondary",
+                  }}
+                >
+                  Session-Wide Memory
+                </Box>
+              </Divider>
+              {activeSessionUid ? (
+                <Stack spacing={1.25}>
+                  <Grid
+                    container
+                    spacing={1.25}
+                    sx={{ alignItems: "flex-start" }}
+                  >
+                    <Grid size={{ xs: 12, sm: 5 }}>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        startIcon={<RebuildMemoryIcon />}
+                        onClick={handleRebuildSessionMemory}
+                        disabled={sending || sessionMemoryBusy}
+                      >
+                        Rebuild Memory
+                      </Button>
+                    </Grid>
+                    <Grid size={{ xs: 12, sm: 7 }}>
+                      <Box
+                        sx={{
+                          pt: { xs: 0, sm: 0.5 },
+                          fontSize: 12,
+                          lineHeight: 1.4,
+                          color: "text.secondary",
+                        }}
+                      >
+                        Recompute the persisted rolling summary for the current
+                        session after forgetting turns or if the stored memory
+                        looks stale.
+                      </Box>
+                    </Grid>
+                  </Grid>
+                  <Grid
+                    container
+                    spacing={1.25}
+                    sx={{ alignItems: "flex-start" }}
+                  >
+                    <Grid size={{ xs: 12, sm: 5 }}>
+                      <TextField
+                        fullWidth
+                        size="small"
+                        margin="dense"
+                        label="Session-wide pinned fact"
+                        value={newPinnedFact}
+                        onChange={(event) =>
+                          setNewPinnedFact(event.target.value)
+                        }
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            handleAddPinnedFact();
+                          }
+                        }}
+                        helperText={`Pinned facts: ${activeSessionMemoryControls.pinnedFacts.length}`}
+                        disabled={sending || sessionMemoryBusy}
+                        sx={{
+                          "& .MuiInputBase-input": {
+                            py: 1,
+                          },
+                          "& .MuiFormHelperText-root": {
+                            mt: 0.25,
+                            fontSize: 11,
+                            lineHeight: 1.3,
+                          },
+                        }}
+                      />
+                    </Grid>
+                    <Grid size={{ xs: 12, sm: 7 }}>
+                      <Stack
+                        direction={{ xs: "column", sm: "row" }}
+                        spacing={1}
+                        sx={{
+                          pt: { xs: 0, sm: 0.5 },
+                          alignItems: "flex-start",
+                        }}
+                      >
+                        <Button
+                          size="small"
+                          variant="contained"
+                          startIcon={<PinIcon />}
+                          onClick={handleAddPinnedFact}
+                          disabled={
+                            sending ||
+                            sessionMemoryBusy ||
+                            !newPinnedFact.trim().length
+                          }
+                        >
+                          Pin Fact
+                        </Button>
+                        <Box
+                          sx={{
+                            fontSize: 12,
+                            lineHeight: 1.4,
+                            color: "text.secondary",
+                          }}
+                        >
+                          Pinned facts apply to the whole selected session, not
+                          to a single turn. Use the turn menu for per-turn
+                          memory actions like debug and forget/remember.
+                        </Box>
+                      </Stack>
+                    </Grid>
+                  </Grid>
+                  {activeSessionMemoryControls.pinnedFacts.length ? (
+                    <List dense disablePadding>
+                      {activeSessionMemoryControls.pinnedFacts.map((fact) => (
+                        <ListItem
+                          key={fact}
+                          disableGutters
+                          secondaryAction={
+                            <IconButton
+                              size="small"
+                              disabled={sending || sessionMemoryBusy}
+                              onClick={() => handleRemovePinnedFact(fact)}
+                            >
+                              <DeleteIcon color="warning" fontSize="small" />
+                            </IconButton>
+                          }
+                          sx={{ pr: 5 }}
+                        >
+                          <ListItemText
+                            primary={fact}
+                            slotProps={{
+                              primary: {
+                                variant: "body2",
+                                sx: {
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                },
+                              },
+                            }}
+                          />
+                        </ListItem>
+                      ))}
+                    </List>
+                  ) : (
+                    <Box
+                      sx={{
+                        fontSize: 12,
+                        lineHeight: 1.4,
+                        color: "text.secondary",
+                      }}
+                    >
+                      No session-wide pinned facts yet.
+                    </Box>
+                  )}
+                  <Box
+                    sx={{
+                      fontSize: 12,
+                      lineHeight: 1.4,
+                      color: "text.secondary",
+                    }}
+                  >
+                    Forgotten turns:{" "}
+                    {activeSessionMemoryControls.forgottenChatUids.length}. Use
+                    a history item's debug dialog to forget or restore an
+                    individual turn without deleting it.
+                  </Box>
+                </Stack>
+              ) : (
+                <Box
+                  sx={{
+                    fontSize: 12,
+                    lineHeight: 1.4,
+                    color: "text.secondary",
+                  }}
+                >
+                  Select a saved chat session to rebuild memory, pin facts, or
+                  manage forgotten turns.
+                </Box>
+              )}
+            </Stack>
+          )}
         </DialogContent>
-        <DialogActions>
-          <Button variant="contained" onClick={() => setSettingsOpen(false)}>
+        <DialogActions sx={{ px: 2.5, py: 1.5 }}>
+          <Button
+            size="small"
+            variant="contained"
+            onClick={() => setSettingsOpen(false)}
+          >
             Close
           </Button>
         </DialogActions>
