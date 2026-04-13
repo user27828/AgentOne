@@ -607,8 +607,10 @@ const Gpt = () => {
   const [showHistoryDebug, setShowHistoryDebug] = useState<boolean | any>(
     false,
   );
-  const [chatActionMenuAnchorEl, setChatActionMenuAnchorEl] =
-    useState<HTMLElement | null>(null);
+  const [chatActionMenuPosition, setChatActionMenuPosition] = useState<{
+    top: number;
+    left: number;
+  } | null>(null);
   const [chatActionMenuChat, setChatActionMenuChat] =
     useState<ChatRecord | null>(null);
   const [cookies, setCookie] = useCookies();
@@ -1415,14 +1417,19 @@ const Gpt = () => {
   const handleChatActionMenuOpen = useCallback(
     (event: React.MouseEvent<HTMLElement>, chat: ChatRecord) => {
       event.stopPropagation();
-      setChatActionMenuAnchorEl(event.currentTarget);
+      const buttonRect = event.currentTarget.getBoundingClientRect();
+
+      setChatActionMenuPosition({
+        top: Math.round(buttonRect.bottom + 4),
+        left: Math.round(buttonRect.right),
+      });
       setChatActionMenuChat(chat);
     },
     [],
   );
 
   const handleChatActionMenuClose = useCallback(() => {
-    setChatActionMenuAnchorEl(null);
+    setChatActionMenuPosition(null);
     setChatActionMenuChat(null);
   }, []);
 
@@ -1887,11 +1894,16 @@ const Gpt = () => {
               }
             </List>
             <Menu
-              anchorEl={chatActionMenuAnchorEl}
+              anchorReference="anchorPosition"
+              anchorPosition={chatActionMenuPosition || undefined}
               open={
-                Boolean(chatActionMenuAnchorEl) && Boolean(chatActionMenuChat)
+                Boolean(chatActionMenuPosition) && Boolean(chatActionMenuChat)
               }
               onClose={handleChatActionMenuClose}
+              transformOrigin={{
+                vertical: "top",
+                horizontal: "right",
+              }}
             >
               <MenuItem
                 onClick={() =>
